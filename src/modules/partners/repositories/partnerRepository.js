@@ -11,3 +11,4 @@ exports.findById = (id) => {
 exports.update = (id, data) => {
   return prisma.partners.update({ where: { id: BigInt(id) }, data });
 };
+
