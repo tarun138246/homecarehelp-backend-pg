@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model partners {
+  id                      BigInt   @id @default(autoincrement())
+  name                    String   @db.VarChar(100)
+  email                   String   @unique @db.VarChar(255)
+  phone_number            String   @unique @db.VarChar(20)
+  working_city            String   @db.VarChar(100)
+  pincode                 String   @db.VarChar(10)
+  address                 String
+  selected_services       String   @db.VarChar
+  id_proof                Json
+  payment_details         Json
+  agreement_url           String
+  data_collection_consent Json
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+  status                  String   @db.VarChar
+}
+
+model service_categories {
+  category_id           Int                     @id @default(autoincrement())
+  category_name         String                  @unique @db.VarChar(100)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  service_subcategories service_subcategories[]
+}
+
+model service_subcategories {
+  subcategory_id     Int                @id @default(autoincrement())
+  category_id        Int
+  subcategory_name   String             @db.VarChar(100)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  service_categories service_categories @relation(fields: [category_id], references: [category_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_category")
+  services           services[]
+
+  @@unique([category_id, subcategory_name], map: "unique_subcategory_per_category")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model services {
+  service_id            String                @id @db.VarChar(100)
+  subcategory_id        Int
+  service_name          String                @db.VarChar(200)
+  description           String
+  pricing_type          String                @db.VarChar(20)
+  base_price            Decimal?              @db.Decimal(10, 2)
+  min_price             Decimal?              @db.Decimal(10, 2)
+  price_per_sqft        Decimal?              @db.Decimal(10, 2)
+  duration              String?               @db.VarChar(50)
+  warranty              String?
+  images                Json                  @default("[]")
+  includes              Json                  @default("[]")
+  tags                  Json                  @default("[]")
+  variants              Json?
+  bhk_prices            Json?
+  is_popular            Boolean               @default(false)
+  popularity_rank       Int?
+  is_active             Boolean               @default(true)
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  price_multiplier      Decimal?              @db.Decimal(10, 2)
+  visiting_charge       Decimal?              @db.Decimal(10, 2)
+  bookings              bookings[]
+  service_subcategories service_subcategories @relation(fields: [subcategory_id], references: [subcategory_id], onUpdate: NoAction, map: "fk_service_subcategory")
+}
+
+model users {
+  user_id      BigInt     @id @default(autoincrement())
+  name         String     @db.VarChar(100)
+  email        String     @unique @db.VarChar(255)
+  password     String     @db.VarChar(255)
+  phone_number String     @unique @db.VarChar(20)
+  last_login   DateTime?  @db.Timestamptz(6)
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime   @default(now()) @db.Timestamptz(6)
+  bookings     bookings[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bookings {
+  booking_id      BigInt    @id @default(autoincrement())
+  user_id         BigInt
+  service_id      String    @db.VarChar(100)
+  service_price   Decimal   @db.Decimal(10, 2)
+  address         Json
+  scheduled_date  DateTime  @db.Date
+  time_slot       String    @db.VarChar(50)
+  payment_option  String    @db.VarChar(20)
+  payment_status  String    @db.VarChar(30)
+  payment_details Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  status          String    @db.VarChar
+  services        services  @relation(fields: [service_id], references: [service_id], onUpdate: NoAction, map: "fk_booking_service")
+  users           users     @relation(fields: [user_id], references: [user_id], onUpdate: NoAction, map: "fk_booking_user")
+}

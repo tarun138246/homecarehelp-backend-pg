@@ -1,0 +1,16 @@
+node_modules
+# Keep environment variables out of version control
+.env
+.env.*
+!.env.example
+
+/generated/prisma
+
+# Temp partner agreement PDFs/signatures held between e-sign and payment confirmation
+/tmp/
+
+# Legacy local upload dir (no longer used — agreements upload to Pratima now)
+/uploads/
+
+*.log
+/logs/
