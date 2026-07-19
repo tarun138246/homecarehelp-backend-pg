@@ -38,3 +38,13 @@ exports.confirmOrder = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.verifyAgreement = async (req, res, next) => {
+  try {
+    const { agreementId } = req.params;
+    const result = await partnerService.verifyAgreement(agreementId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};

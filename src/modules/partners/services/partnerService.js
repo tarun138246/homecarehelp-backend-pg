@@ -3,6 +3,7 @@ const path = require('path');
 const partnerRepo = require('../repositories/partnerRepository');
 const { encrypt } = require('../../../common/utils/crypto');
 const { generateAgreementPDF } = require('../../../common/utils/agreementPdf');
+const { generateAgreementId, verifyAgreementId } = require('../../../common/utils/agreementId');
 const cashfreePaymentService = require('../../payments/services/cashfreePaymentService');
 const pratimaClient = require('../../../common/utils/pratimaClient');
 const partnerSessions = require('./partnerSessionStore');
@@ -86,8 +87,15 @@ exports.eSign = async (partnerId, signatureBase64) => {
     throw Object.assign(new Error('partnerId and signature are required'), { status: 400 });
   }
 
-  const partner = await partnerRepo.findById(partnerId);
+  let partner = await partnerRepo.findById(partnerId);
   if (!partner) throw Object.assign(new Error('Partner not found'), { status: 404 });
+
+  // The agreement ID is assigned once and reused on every re-sign so it
+  // stays permanent for this partner's agreement.
+  if (!partner.agreement_id) {
+    const agreementId = generateAgreementId(partner.id.toString());
+    partner = await partnerRepo.update(partnerId, { agreement_id: agreementId });
+  }
 
   const pdfBuffer = await generateAgreementPDF(partner, signatureBase64);
 
@@ -100,6 +108,31 @@ exports.eSign = async (partnerId, signatureBase64) => {
   ]);
 
   return { message: 'Signature received, agreement generated' };
+};
+
+// Verifies an agreement ID printed on (or extracted from) a signed
+// agreement PDF. Checks the ID's own HMAC checksum first (catches a forged
+// or hand-edited ID without touching the DB), then confirms it actually
+// belongs to a partner record on file.
+exports.verifyAgreement = async (agreementId) => {
+  const check = verifyAgreementId(agreementId);
+  if (!check.valid) {
+    return { valid: false, reason: 'Agreement ID is invalid or has been tampered with' };
+  }
+
+  const partner = await partnerRepo.findByAgreementId(agreementId);
+  if (!partner || partner.id.toString() !== check.partnerId) {
+    return { valid: false, reason: 'Agreement ID not found in our records' };
+  }
+
+  return {
+    valid: true,
+    agreementId,
+    partnerName: partner.name,
+    phoneMasked: partner.phone_number.replace(/^(\d{2})\d+(\d{2})$/, '$1******$2'),
+    workingCity: partner.working_city,
+    status: partner.status
+  };
 };
 
 async function loadAgreementPdf(partnerId) {
