@@ -2,17 +2,19 @@ require('dotenv').config();
 const app = require('./src/app');
 const prisma = require('./src/common/prismaClient');
 const cleanupJob = require('./src/common/jobs/cleanupJob');
+const paymentResetJob = require('./src/cron/resetStalePayments');
 
 const PORT = process.env.PORT || 3000;
 
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  cleanupJob.start();
+  // Cron jobs are already started in app.js, so no need to start again
 });
 
 async function shutdown(signal) {
   console.log(`${signal} received — shutting down gracefully`);
   cleanupJob.stop();
+  paymentResetJob.stop();
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

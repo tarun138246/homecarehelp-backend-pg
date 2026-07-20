@@ -49,9 +49,12 @@ module.exports = {
   pratimaApiKey: process.env.PRATIMA_API_KEY,
   pratimaCompanyId: process.env.PRATIMA_COMPANY_ID,
 
-  // Comma-separated list of allowed frontend origins for CORS, e.g.
-  // "https://homecarehelp.in,https://partner.homecarehelp.in"
-  corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  corsOrigins: [
+    'https://www.homecarehelp.in',
+    'https://homecarehelp.in',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ],
 
   puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
 };

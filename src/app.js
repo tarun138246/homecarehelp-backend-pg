@@ -21,10 +21,51 @@ const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
 const app = express();
 
-app.set('trust proxy', 1); // needed behind nginx/a load balancer for correct req.ip in rate limiting
+app.set('trust proxy', 1);
 
-app.use(helmet());
-app.use(cors({ origin: env.corsOrigins.length ? env.corsOrigins : true }));
+// ===== CORS - MUST be before helmet and other middleware =====
+const allowedOrigins = env.corsOrigins && env.corsOrigins.length 
+  ? env.corsOrigins 
+  : [
+      'https://www.homecarehelp.in',
+      'https://homecarehelp.in',
+      'http://localhost:3000',
+      'http://localhost:3001'
+    ];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-CSRF-Token', 
+    'X-Requested-With', 
+    'Accept',
+    'Origin'
+  ],
+  credentials: true,
+  maxAge: 86400 // Cache preflight for 24 hours
+}));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
+// Now helmet after CORS
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin resource sharing
+}));
+
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '5mb' }));
@@ -37,14 +78,31 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/bookings', bookingRoutes);
-app.use('/api', bookingPaymentRoutes); // /api/create-order, /api/confirm-order
+app.use('/api', bookingPaymentRoutes);
 app.use('/api/partner', partnerRoutes);
-app.use('/api/admin', adminRoutes); // placeholder only
+app.use('/api/admin', adminRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
 // Error handler
 app.use(errorHandler);
+
+// Initialize cron jobs
+cleanupJob.start();
+paymentResetJob.start();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  cleanupJob.stop();
+  paymentResetJob.stop();
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  cleanupJob.stop();
+  paymentResetJob.stop();
+});
 
 module.exports = app;
