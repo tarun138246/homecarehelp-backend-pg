@@ -1,6 +1,6 @@
 // Runs every 24 hour and those partner whose payment are failed or dropped for more than 48 hours reset there payment data from DB
 const cron = require('node-cron');
-const partnerService = require('../modules/partners/services/partnerService');
+const partnerService = require('../../modules/partners/services/partnerService');
 
 const SCHEDULE = '0 0 * * *'; // Run every 24 hours at midnight
 
