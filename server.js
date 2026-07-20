@@ -2,7 +2,7 @@ require('dotenv').config();
 const app = require('./src/app');
 const prisma = require('./src/common/prismaClient');
 const cleanupJob = require('./src/common/jobs/cleanupJob');
-const paymentResetJob = require('./src/cron/resetStalePayments');
+const paymentResetJob = require('./src/common/jobs/resetStalePayments');
 
 const PORT = process.env.PORT || 3000;
 
