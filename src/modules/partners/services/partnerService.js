@@ -172,7 +172,8 @@ exports.confirmPartnerOrder = async (orderId) => {
       status: 'success', 
       message: 'Payment successful',
       agreement_url: partner.agreement_url,
-      invoice_url: partner.invoice_url
+      invoice_url: partner.invoice_url,
+      invoice_id: partner.invoice_id
     };
   } else {
     return { 
