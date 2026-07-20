@@ -1,5 +1,5 @@
 const { generateAgreementPDF } = require('./src/common/utils/agreementPdf');
-const { generateAgreementId, verifyAgreementId } = require('./src/common/utils/agreementId');
+const { generateAgreementId, verifyAgreementId } = require('./src/common/utils/agreement-invoiceId');
 const fs = require('fs');
 const path = require('path');
 

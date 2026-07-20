@@ -18,12 +18,14 @@ model partners {
   selected_services       String   @db.VarChar
   id_proof                Json
   payment_details         Json
-  agreement_url           String
-  agreement_id            String?  @unique @db.VarChar(64)
   data_collection_consent Json
   created_at              DateTime @default(now()) @db.Timestamptz(6)
   updated_at              DateTime @default(now()) @db.Timestamptz(6)
   status                  String   @db.VarChar
+  invoice_url             String?  @db.VarChar
+  invoice_id              String?  @unique @db.VarChar(32)
+  agreement_url           String
+  agreement_id            String?   @unique @db.VarChar(64)
 }
 
 model service_categories {

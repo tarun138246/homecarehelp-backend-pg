@@ -40,4 +40,15 @@ function verifyAgreementId(agreementId) {
   return valid ? { valid: true, partnerId } : { valid: false };
 }
 
-module.exports = { generateAgreementId, verifyAgreementId };
+function generateInvoiceId(partnerId) {
+  const random = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const checksum = crypto
+    .createHmac('sha256', env.jwtSecret || 'dev-agreement-secret')
+    .update(`INV:${partnerId}:${random}`)
+    .digest('hex')
+    .slice(0, 6)
+    .toUpperCase();
+  return `INV-HCH-${partnerId}-${random}-${checksum}`;
+}
+
+module.exports = { generateAgreementId, verifyAgreementId, generateInvoiceId };

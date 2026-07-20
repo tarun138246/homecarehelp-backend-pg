@@ -3,8 +3,9 @@ const path = require('path');
 const partnerRepo = require('../repositories/partnerRepository');
 const { encrypt } = require('../../../common/utils/crypto');
 const { generateAgreementPDF } = require('../../../common/utils/agreementPdf');
-const { generateAgreementId, verifyAgreementId } = require('../../../common/utils/agreementId');
+const { generateAgreementId, verifyAgreementId, generateInvoiceId } = require('../../../common/utils/agreementId');
 const cashfreePaymentService = require('../../payments/services/cashfreePaymentService');
+const { generateInvoicePDF } = require('../../../common/utils/invoicePdf');
 const pratimaClient = require('../../../common/utils/pratimaClient');
 const partnerSessions = require('./partnerSessionStore');
 const env = require('../../../common/config/env');
@@ -12,10 +13,6 @@ const env = require('../../../common/config/env');
 const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';
 const REQUIRED_FIELDS = ['name', 'email', 'phone_number', 'working_city', 'pincode', 'address', 'selected_services', 'id_proof'];
-
-// Signature/PDF are held in RAM (via partnerSessionStore) for speed, and
-// mirrored to disk so a server restart between e-sign and payment
-// confirmation doesn't lose them. A daily cron prunes anything stale.
 
 function tempDir() {
   return path.resolve(env.agreementTempDir);
@@ -48,15 +45,11 @@ function validateRegistration(data) {
 exports.register = async (partnerData) => {
   validateRegistration(partnerData);
 
-  // Each ID-proof number gets its own independent key+IV, stored alongside
-  // it in the same array element — one item's key can never decode another.
   const idProofs = partnerData.id_proof.map((item) => {
     const { encryptedData, key, iv } = encrypt(item.number);
     return { name: item.name, number: encryptedData, key, iv };
   });
 
-  // `address` and `selected_services` are plain String columns on the
-  // partners table (schema not touched) — serialize structured input.
   const address = typeof partnerData.address === 'string'
     ? partnerData.address
     : JSON.stringify(partnerData.address);
@@ -90,8 +83,6 @@ exports.eSign = async (partnerId, signatureBase64) => {
   let partner = await partnerRepo.findById(partnerId);
   if (!partner) throw Object.assign(new Error('Partner not found'), { status: 404 });
 
-  // The agreement ID is assigned once and reused on every re-sign so it
-  // stays permanent for this partner's agreement.
   if (!partner.agreement_id) {
     const agreementId = generateAgreementId(partner.id.toString());
     partner = await partnerRepo.update(partnerId, { agreement_id: agreementId });
@@ -110,10 +101,6 @@ exports.eSign = async (partnerId, signatureBase64) => {
   return { message: 'Signature received, agreement generated' };
 };
 
-// Verifies an agreement ID printed on (or extracted from) a signed
-// agreement PDF. Checks the ID's own HMAC checksum first (catches a forged
-// or hand-edited ID without touching the DB), then confirms it actually
-// belongs to a partner record on file.
 exports.verifyAgreement = async (agreementId) => {
   const check = verifyAgreementId(agreementId);
   if (!check.valid) {
@@ -135,11 +122,245 @@ exports.verifyAgreement = async (agreementId) => {
   };
 };
 
+exports.createPartnerOrder = async (partnerId) => {
+  if (!partnerId) throw Object.assign(new Error('partner_id is required'), { status: 400 });
+
+  const partner = await partnerRepo.findById(partnerId);
+  if (!partner) throw Object.assign(new Error('Partner not found'), { status: 404 });
+
+  const order = await cashfreePaymentService.createOrder({
+    prefix: ORDER_PREFIX,
+    entityId: partnerId.toString(),
+    amount: JOINING_FEE,
+    customerName: partner.name,
+    customerEmail: partner.email,
+    customerPhone: partner.phone_number
+  });
+
+  // Store only the latest order attempt
+  const paymentDetails = {
+    order_id: order.order_id,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    status: 'PENDING'
+  };
+
+  await partnerRepo.update(partnerId, {
+    payment_details: paymentDetails,
+    status: 'payment_initiated'
+  });
+
+  return order;
+};
+
+exports.confirmPartnerOrder = async (orderId) => {
+  if (!orderId) throw Object.assign(new Error('orderId is required'), { status: 400 });
+
+  const partner = await partnerRepo.findByOrderId(orderId);
+  if (!partner) {
+    throw Object.assign(new Error('Order not found'), { status: 404 });
+  }
+
+  const paymentDetails = partner.payment_details;
+
+  if (!paymentDetails || paymentDetails.order_id !== orderId) {
+    return { status: 'failed', message: 'Order not found in partner records' };
+  }
+
+  if (paymentDetails.status === 'SUCCESS') {
+    return { 
+      status: 'success', 
+      message: 'Payment successful',
+      agreement_url: partner.agreement_url,
+      invoice_url: partner.invoice_url
+    };
+  } else {
+    return { 
+      status: 'failed', 
+      message: `Payment ${paymentDetails.status.toLowerCase()}` 
+    };
+  }
+};
+
+exports.processWebhook = async (webhookData) => {
+  const { type, data } = webhookData;
+  
+  if (!data?.order?.order_id) {
+    throw Object.assign(new Error('Invalid webhook data'), { status: 400 });
+  }
+
+  const orderId = data.order.order_id;
+  const partner = await partnerRepo.findByOrderId(orderId);
+  
+  if (!partner) {
+    throw Object.assign(new Error('Partner not found for this order'), { status: 404 });
+  }
+
+  // Verify this is the latest order
+  if (partner.payment_details?.order_id !== orderId) {
+    throw Object.assign(new Error('This is not the latest order for this partner'), { status: 409 });
+  }
+
+  switch (type) {
+    case 'PAYMENT_SUCCESS_WEBHOOK':
+      return await handlePaymentSuccess(partner, data);
+    
+    case 'PAYMENT_FAILED_WEBHOOK':
+      return await handlePaymentFailed(partner, data);
+    
+    case 'PAYMENT_USER_DROPPED_WEBHOOK':
+      return await handlePaymentDropped(partner, data);
+    
+    default:
+      throw Object.assign(new Error('Unsupported webhook type'), { status: 400 });
+  }
+};
+
+async function handlePaymentSuccess(partner, data) {
+  const { payment, order } = data;
+  
+  // Extract payment method type and details
+  let paymentMethodType = null;
+  let upiId = null;
+  
+  if (payment.payment_method) {
+    if (payment.payment_method.upi) {
+      paymentMethodType = 'UPI';
+      upiId = payment.payment_method.upi.upi_id || null;
+    } else if (payment.payment_method.netbanking) {
+      paymentMethodType = 'NET_BANKING';
+    } else if (payment.payment_method.card) {
+      paymentMethodType = 'CARD';
+    }
+  }
+
+  // Update payment details with success information
+  const paymentDetails = {
+    order_id: order.order_id,
+    order_amount: order.order_amount,
+    order_currency: order.order_currency,
+    payment_id: payment.cf_payment_id,
+    payment_status: 'SUCCESS',
+    payment_time: payment.payment_time,
+    payment_method: paymentMethodType,
+    upi_id: upiId,
+    bank_reference: payment.bank_reference,
+    payment_message: payment.payment_message,
+    created_at: partner.payment_details.created_at,
+    updated_at: new Date().toISOString(),
+    status: 'SUCCESS'
+  };
+
+  // Generate agreement and invoice
+  const partnerId = partner.id.toString();
+  const pdfBuffer = await loadAgreementPdf(partnerId);
+  
+  if (!pdfBuffer) {
+    await partnerRepo.update(partnerId, {
+      status: 'payment_received',
+      payment_details: paymentDetails
+    });
+    
+    return { 
+      success: true, 
+      message: 'Payment received but agreement not found',
+      requires_esign: true 
+    };
+  }
+
+  const invoiceId = generateInvoiceId(partnerId);
+  const invoiceBuffer = await generateInvoicePDF(partner, invoiceId);
+  
+  const [agreementUrl, invoiceUrl] = await Promise.all([
+    uploadAgreementPDF(pdfBuffer, partnerId),
+    uploadInvoicePDF(invoiceBuffer, partnerId, invoiceId)
+  ]);
+
+  await partnerRepo.update(partnerId, {
+    status: 'confirmed',
+    agreement_url: agreementUrl,
+    invoice_url: invoiceUrl,
+    invoice_id: invoiceId,
+    payment_details: paymentDetails
+  });
+
+  await clearAgreementTemp(partnerId);
+
+  return { 
+    success: true, 
+    message: 'Payment confirmed and documents generated',
+    agreement_url: agreementUrl,
+    invoice_url: invoiceUrl
+  };
+}
+
+async function handlePaymentFailed(partner, data) {
+  const { payment, order } = data;
+
+  const paymentDetails = {
+    order_id: order.order_id,
+    order_amount: order.order_amount,
+    order_currency: order.order_currency,
+    payment_id: payment.cf_payment_id,
+    payment_status: 'FAILED',
+    payment_time: payment.payment_time,
+    payment_message: payment.payment_message,
+    created_at: partner.payment_details.created_at,
+    updated_at: new Date().toISOString(),
+    status: 'FAILED'
+  };
+
+  await partnerRepo.update(partner.id.toString(), {
+    status: 'payment_failed',
+    payment_details: paymentDetails
+  });
+
+  return { success: true, message: 'Payment failed status updated' };
+}
+
+async function handlePaymentDropped(partner, data) {
+  const { payment, order } = data;
+
+  const paymentDetails = {
+    order_id: order.order_id,
+    order_amount: order.order_amount,
+    order_currency: order.order_currency,
+    payment_id: payment.cf_payment_id,
+    payment_status: 'USER_DROPPED',
+    payment_time: payment.payment_time,
+    payment_message: payment.payment_message,
+    created_at: partner.payment_details.created_at,
+    updated_at: new Date().toISOString(),
+    status: 'USER_DROPPED'
+  };
+
+  await partnerRepo.update(partner.id.toString(), {
+    status: 'payment_dropped',
+    payment_details: paymentDetails
+  });
+
+  return { success: true, message: 'Payment dropped status updated' };
+}
+
+// Cron job to reset stale payment attempts
+exports.resetStalePayments = async () => {
+  const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 hours ago
+  
+  const stalePartners = await partnerRepo.findStalePayments(cutoffTime);
+  
+  let resetCount = 0;
+  for (const partner of stalePartners) {
+    await partnerRepo.resetPaymentDetails(partner.id.toString());
+    resetCount++;
+  }
+
+  return { success: true, message: `Reset ${resetCount} stale payment attempts` };
+};
+
 async function loadAgreementPdf(partnerId) {
   const session = partnerSessions.get(partnerId);
   if (session?.pdfBuffer) return session.pdfBuffer;
 
-  // RAM was cleared (e.g. restart) — fall back to the disk copy written at e-sign time.
   try {
     return await fs.readFile(tempPdfPath(partnerId));
   } catch {
@@ -155,67 +376,18 @@ async function clearAgreementTemp(partnerId) {
   ]);
 }
 
-exports.createPartnerOrder = async (partnerId) => {
-  if (!partnerId) throw Object.assign(new Error('partner_id is required'), { status: 400 });
-
-  const partner = await partnerRepo.findById(partnerId);
-  if (!partner) throw Object.assign(new Error('Partner not found'), { status: 404 });
-
-  return cashfreePaymentService.createOrder({
-    prefix: ORDER_PREFIX,
-    entityId: partnerId.toString(),
-    amount: JOINING_FEE,
-    customerName: partner.name,
-    customerEmail: partner.email,
-    customerPhone: partner.phone_number
-  });
-};
-
-exports.confirmPartnerOrder = async (orderId) => {
-  if (!orderId) throw Object.assign(new Error('orderId is required'), { status: 400 });
-
-  const result = await cashfreePaymentService.confirmOrder({ orderId, expectedPrefix: ORDER_PREFIX });
-
-  if (result.order_status !== 'PAID') {
-    return { paid: false, order_status: result.order_status };
-  }
-
-  const partnerId = result.entityId;
-  const pdfBuffer = await loadAgreementPdf(partnerId);
-  if (!pdfBuffer) {
-    throw Object.assign(new Error('Signed agreement not found — please e-sign again'), { status: 409 });
-  }
-
-  const agreementUrl = await uploadAgreementPDF(pdfBuffer, partnerId);
-
-  await partnerRepo.update(partnerId, {
-    status: 'confirmed',
-    agreement_url: agreementUrl,
-    payment_details: {
-      order_id: result.order_id,
-      payment_session_id: result.payment_session_id,
-      amount: result.order_amount,
-      payment_methods: result.payment_methods,
-      paidAt: new Date().toISOString()
-    }
-  });
-
-  await clearAgreementTemp(partnerId);
-
-  return { paid: true, message: 'Partner confirmed', agreement_url: agreementUrl };
-};
-
-// Uploads the signed agreement PDF to the Pratima custom file-storage engine
-// and returns its public URL.
 async function uploadAgreementPDF(pdfBuffer, partnerId) {
   const filename = `agreement_${partnerId}_${Date.now()}.pdf`;
   const { url } = await pratimaClient.uploadFile(pdfBuffer, filename, 'application/pdf');
   return url;
 }
 
-// Called by the daily cleanup cron. Removes RAM sessions and temp disk files
-// for partners who e-signed but never completed payment within maxAgeMs —
-// otherwise both would accumulate forever.
+async function uploadInvoicePDF(invoiceBuffer, partnerId, invoiceId) {
+  const filename = `invoice_${partnerId}_${invoiceId}_${Date.now()}.pdf`;
+  const { url } = await pratimaClient.uploadFile(invoiceBuffer, filename, 'application/pdf');
+  return url;
+}
+
 exports.pruneStaleAgreements = async (maxAgeMs) => {
   const cutoff = Date.now() - maxAgeMs;
   let removed = 0;
@@ -231,7 +403,7 @@ exports.pruneStaleAgreements = async (maxAgeMs) => {
   try {
     dir = await fs.readdir(tempDir());
   } catch {
-    return removed; // temp dir doesn't exist yet — nothing to prune on disk
+    return removed;
   }
 
   for (const file of dir) {

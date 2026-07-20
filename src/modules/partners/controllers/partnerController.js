@@ -31,7 +31,7 @@ exports.createOrder = async (req, res, next) => {
 
 exports.confirmOrder = async (req, res, next) => {
   try {
-    const { orderId } = req.body;
+    const { orderId } = req.query;
     const result = await partnerService.confirmPartnerOrder(orderId);
     res.json(result);
   } catch (err) {
@@ -43,6 +43,16 @@ exports.verifyAgreement = async (req, res, next) => {
   try {
     const { agreementId } = req.params;
     const result = await partnerService.verifyAgreement(agreementId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.webhook = async (req, res, next) => {
+  try {
+    const webhookData = JSON.parse(req.rawBody);
+    const result = await partnerService.processWebhook(webhookData);
     res.json(result);
   } catch (err) {
     next(err);

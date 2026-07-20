@@ -7,6 +7,9 @@ const errorHandler = require('./common/middlewares/errorHandler');
 const { apiLimiter, authLimiter } = require('./common/middlewares/rateLimiter');
 const env = require('./common/config/env');
 
+const cleanupJob = require('./cron/cleanupJob');
+const paymentResetJob = require('./cron/resetStalePayments');
+
 const healthRoutes = require('./common/routes/healthRoutes');
 const authRoutes = require('./modules/auth/routes/authRoutes');
 const userRoutes = require('./modules/users/routes/userRoutes');

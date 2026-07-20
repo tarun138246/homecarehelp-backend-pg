@@ -1,3 +1,4 @@
+// Runs every 24 hour and clears the agreements that are there in the disk or RAM of partners who had not completed payment in 24 hours
 const cron = require('node-cron');
 const partnerService = require('../../modules/partners/services/partnerService');
 
