@@ -1,4 +1,5 @@
 const Sentry = require('@sentry/node');
+const { nodeProfilingIntegration } = require('@sentry/profiling-node');
 const env = require('./env');
 
 let sentryInitialized = false;
@@ -19,16 +20,9 @@ function initSentry() {
       environment: env.sentryEnvironment,
       tracesSampleRate: env.sentryTracesSampleRate,
       
-      // Integrations
+      // Integrations - Sentry v8 uses different approach
       integrations: [
-        // HTTP integration for tracking HTTP requests
-        new Sentry.Integrations.Http({ tracing: true }),
-        // Express integration
-        new Sentry.Integrations.Express({ app: true }),
-        // Console integration to capture console.log, console.error, etc.
-        new Sentry.Integrations.Console({
-          levels: ['log', 'info', 'warn', 'error', 'debug']
-        }),
+        // Console integration is enabled by default in v8
       ],
 
       // Capture all console output

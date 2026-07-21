@@ -21,12 +21,12 @@ const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
 // Initialize Sentry FIRST (before creating Express app)
-initSentry();
+const sentryEnabled = initSentry();
 
 const app = express();
 
-// Sentry request handler MUST be the first middleware
-if (Sentry) {
+// Sentry request handler MUST be the first middleware (if enabled)
+if (sentryEnabled && Sentry) {
   app.use(Sentry.Handlers.requestHandler());
   app.use(Sentry.Handlers.tracingHandler());
 }
@@ -111,8 +111,8 @@ app.use('/api/admin', adminRoutes);
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
-// Sentry error handler MUST be before other error handlers
-if (Sentry) {
+// Sentry error handler MUST be before other error handlers (if enabled)
+if (sentryEnabled && Sentry) {
   app.use(Sentry.Handlers.errorHandler());
 }
 
