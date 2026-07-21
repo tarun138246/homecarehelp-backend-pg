@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
-const sentryConfig = require('./common/config/sentry');
 const errorHandler = require('./common/middlewares/errorHandler');
 const { apiLimiter, authLimiter } = require('./common/middlewares/rateLimiter');
 const env = require('./common/config/env');
