@@ -20,23 +20,14 @@ const bookingPaymentRoutes = require('./modules/bookings/routes/paymentRoutes');
 const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
-// Initialize Sentry FIRST (before creating Express app)
+// Initialize Sentry FIRST
 const sentryEnabled = sentryConfig.initSentry();
-const Sentry = sentryEnabled ? sentryConfig.Sentry : null;
 
 const app = express();
 
-// Sentry request handler MUST be the first middleware (if enabled)
-if (sentryEnabled && Sentry && Sentry.Handlers) {
-  app.use(Sentry.Handlers.requestHandler());
-  app.use(Sentry.Handlers.tracingHandler());
-} else if (sentryEnabled) {
-  console.warn('[Sentry] Sentry initialized but Handlers not available');
-}
-
 app.set('trust proxy', 1);
 
-// ===== CORS - MUST be before helmet and other middleware =====
+// CORS
 const allowedOrigins = env.corsOrigins && env.corsOrigins.length 
   ? env.corsOrigins 
   : [
@@ -49,7 +40,6 @@ const allowedOrigins = env.corsOrigins && env.corsOrigins.length
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -58,28 +48,18 @@ app.use(cors({
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-CSRF-Token', 
-    'X-Requested-With', 
-    'Accept',
-    'Origin'
-  ],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'Accept', 'Origin'],
   credentials: true,
   maxAge: 86400
 }));
 
 app.options('*', cors());
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
-// Webhook raw body handling
+// Webhook raw body
 app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
   req.rawBody = req.body.toString('utf8');
   try {
@@ -90,13 +70,10 @@ app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json',
   }
 });
 
-// Standard JSON parsing
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 app.use('/health', healthRoutes);
-
-// Mount routes
 app.use('/api', apiLimiter);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/users', userRoutes);
@@ -106,30 +83,28 @@ app.use('/api', bookingPaymentRoutes);
 app.use('/api/partner', partnerRoutes);
 app.use('/api/admin', adminRoutes);
 
-// 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
-// Sentry error handler
-if (sentryEnabled && Sentry && Sentry.Handlers) {
-  app.use(Sentry.Handlers.errorHandler());
+// Sentry error handler (v8+ way)
+if (sentryEnabled) {
+  sentryConfig.setupExpress(app);
 }
 
 // Custom error handler
 app.use(errorHandler);
 
-// Initialize cron jobs
+// Cron jobs
 cleanupJob.start();
 paymentResetJob.start();
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  console.log('SIGTERM received. Shutting down...');
   cleanupJob.stop();
   paymentResetJob.stop();
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
+  console.log('SIGINT received. Shutting down...');
   cleanupJob.stop();
   paymentResetJob.stop();
 });

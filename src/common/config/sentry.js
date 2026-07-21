@@ -18,22 +18,17 @@ function initSentry() {
       dsn: env.sentryDsn,
       environment: env.sentryEnvironment || env.nodeEnv || 'development',
       tracesSampleRate: env.sentryTracesSampleRate || 0.1,
-      
-      // Ignore certain errors
       ignoreErrors: [
         'Too many attempts',
         'ECONNREFUSED',
         'ENOTFOUND',
         'Rate limit exceeded',
       ],
-      
-      // Send default PII (Personally Identifiable Information)
       sendDefaultPii: false,
     });
 
     sentryInitialized = true;
-    console.log('[Sentry] Initialized successfully');
-    
+    console.log('[Sentry] Initialized successfully - v10');
     return true;
   } catch (error) {
     console.error('[Sentry] Failed to initialize:', error.message);
@@ -41,65 +36,55 @@ function initSentry() {
   }
 }
 
-function captureException(error, context = {}) {
-  if (!sentryInitialized) {
-    console.error('[Sentry] Not initialized - error:', error.message);
-    return null;
-  }
+// In Sentry v8+, use setupExpressErrorHandler instead of Handlers
+function setupExpress(app) {
+  if (!sentryInitialized) return;
 
   try {
-    return Sentry.captureException(error, {
-      extra: context
-    });
+    // Sentry v10: setupExpressErrorHandler replaces the old Handlers pattern
+    Sentry.setupExpressErrorHandler(app);
+    console.log('[Sentry] Express error handler setup complete');
   } catch (err) {
-    console.error('[Sentry] Failed to capture exception:', err.message);
+    console.error('[Sentry] Failed to setup Express:', err.message);
+  }
+}
+
+function captureException(error, context = {}) {
+  if (!sentryInitialized) return null;
+  try {
+    return Sentry.captureException(error, { extra: context });
+  } catch (err) {
     return null;
   }
 }
 
 function captureMessage(message, level = 'info', context = {}) {
-  if (!sentryInitialized) {
-    return null;
-  }
-
+  if (!sentryInitialized) return null;
   try {
-    return Sentry.captureMessage(message, {
-      level,
-      extra: context
-    });
+    return Sentry.captureMessage(message, { level, extra: context });
   } catch (err) {
-    console.error('[Sentry] Failed to capture message:', err.message);
     return null;
   }
 }
 
 function setUser(user) {
-  if (!sentryInitialized) {
-    return;
-  }
-
+  if (!sentryInitialized) return;
   try {
     Sentry.setUser(user);
-  } catch (err) {
-    console.error('[Sentry] Failed to set user:', err.message);
-  }
+  } catch (err) {}
 }
 
 function addBreadcrumb(breadcrumb) {
-  if (!sentryInitialized) {
-    return;
-  }
-
+  if (!sentryInitialized) return;
   try {
     Sentry.addBreadcrumb(breadcrumb);
-  } catch (err) {
-    console.error('[Sentry] Failed to add breadcrumb:', err.message);
-  }
+  } catch (err) {}
 }
 
 module.exports = {
-  Sentry, 
+  Sentry,
   initSentry,
+  setupExpress,
   captureException,
   captureMessage,
   setUser,
