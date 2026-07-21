@@ -17,8 +17,16 @@ function verifyWebhookSignature(rawBody, signature, timestamp) {
     );
   }
 
+  // Handle both seconds and milliseconds timestamp formats from Cashfree
+  let timestampInSeconds = parseInt(timestamp);
+  
+  // If timestamp is in milliseconds (13+ digits), convert to seconds
+  if (timestampInSeconds > 10000000000) {
+    timestampInSeconds = Math.floor(timestampInSeconds / 1000);
+  }
+
   // Reject webhooks older than 5 minutes (replay attack protection)
-  const webhookAge = Date.now() - parseInt(timestamp) * 1000;
+  const webhookAge = Date.now() - (timestampInSeconds * 1000);
   const MAX_AGE = 5 * 60 * 1000; // 5 minutes
 
   if (webhookAge > MAX_AGE) {
@@ -37,6 +45,7 @@ function verifyWebhookSignature(rawBody, signature, timestamp) {
   }
 
   // Compute HMAC-SHA256 signature
+  // Use the ORIGINAL timestamp value from header (not converted)
   const signatureString = rawBody + timestamp;
   const computedSignature = crypto
     .createHmac('sha256', env.cashfreeClientSecret)
@@ -46,6 +55,17 @@ function verifyWebhookSignature(rawBody, signature, timestamp) {
   const isValid = computedSignature === signature;
 
   if (!isValid) {
+    // Log signature mismatch for debugging (only in non-production)
+    if (env.nodeEnv !== 'production') {
+      console.error('[Webhook Signature] Mismatch:', {
+        received: signature.substring(0, 20) + '...',
+        computed: computedSignature.substring(0, 20) + '...',
+        timestamp,
+        bodyLength: rawBody.length,
+        bodyPreview: rawBody.substring(0, 100)
+      });
+    }
+    
     throw Object.assign(
       new Error('Invalid webhook signature - possible forgery attempt'),
       { status: 401 }

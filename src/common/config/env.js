@@ -52,6 +52,7 @@ module.exports = {
   corsOrigins: [
     'https://www.homecarehelp.in',
     'https://homecarehelp.in',
+    'https://backend.homecarehelp.in',
     'http://localhost:3000',
     'http://localhost:3001'
   ],
