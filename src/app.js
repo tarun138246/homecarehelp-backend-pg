@@ -68,7 +68,23 @@ app.use(helmet({
 
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
+
+// Special handling for webhook endpoints - capture raw body BEFORE JSON parsing
+// This is required for webhook signature verification
+app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
+  // express.raw() stores the raw body in req.body as a Buffer
+  req.rawBody = req.body.toString('utf8');
+  try {
+    req.body = JSON.parse(req.rawBody);
+    next();
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid JSON in webhook payload' });
+  }
+});
+
+// Standard JSON parsing for all other routes
 app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 app.use('/health', healthRoutes);
 

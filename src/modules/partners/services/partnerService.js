@@ -68,8 +68,14 @@ exports.register = async (partnerData) => {
     id_proof: idProofs,
     agreement_url: '',
     payment_details: {},
-    data_collection_consent: 0,
+    data_collection_consent: { accepted: false, timestamp: null },
     status: 'created'
+  });
+
+  console.log('[Partner] Registered:', {
+    partnerId: partner.id.toString(),
+    email: partner.email,
+    phone: partner.phone_number
   });
 
   return { partnerId: partner.id.toString() };
@@ -128,6 +134,12 @@ exports.createPartnerOrder = async (partnerId) => {
   const partner = await partnerRepo.findById(partnerId);
   if (!partner) throw Object.assign(new Error('Partner not found'), { status: 404 });
 
+  console.log('[Create Order] Started:', {
+    partnerId: partnerId.toString(),
+    currentStatus: partner.status,
+    existingOrderId: partner.payment_details?.order_id || 'none'
+  });
+
   const order = await cashfreePaymentService.createOrder({
     prefix: ORDER_PREFIX,
     entityId: partnerId.toString(),
@@ -135,6 +147,12 @@ exports.createPartnerOrder = async (partnerId) => {
     customerName: partner.name,
     customerEmail: partner.email,
     customerPhone: partner.phone_number
+  });
+
+  console.log('[Create Order] Cashfree order created:', {
+    partnerId: partnerId.toString(),
+    orderId: order.order_id,
+    paymentSessionId: order.payment_session_id
   });
 
   // Store only the latest order attempt
@@ -148,6 +166,11 @@ exports.createPartnerOrder = async (partnerId) => {
   await partnerRepo.update(partnerId, {
     payment_details: paymentDetails,
     status: 'payment_initiated'
+  });
+
+  console.log('[Create Order] Partner updated with order details:', {
+    partnerId: partnerId.toString(),
+    orderId: order.order_id
   });
 
   return order;
@@ -186,7 +209,14 @@ exports.confirmPartnerOrder = async (orderId) => {
 exports.processWebhook = async (webhookData) => {
   const { type, data } = webhookData;
   
+  console.log('[Webhook Processing] Started:', {
+    type,
+    orderId: data?.order?.order_id,
+    timestamp: new Date().toISOString()
+  });
+  
   if (!data?.order?.order_id) {
+    console.error('[Webhook Processing] Invalid webhook data - missing order_id');
     throw Object.assign(new Error('Invalid webhook data'), { status: 400 });
   }
 
@@ -194,12 +224,27 @@ exports.processWebhook = async (webhookData) => {
   const partner = await partnerRepo.findByOrderId(orderId);
   
   if (!partner) {
+    console.error('[Webhook Processing] Partner not found:', { orderId });
     throw Object.assign(new Error('Partner not found for this order'), { status: 404 });
   }
 
+  console.log('[Webhook Processing] Partner found:', {
+    partnerId: partner.id.toString(),
+    currentStatus: partner.status,
+    storedOrderId: partner.payment_details?.order_id
+  });
+
   // Verify this is the latest order
   if (partner.payment_details?.order_id !== orderId) {
-    throw Object.assign(new Error('This is not the latest order for this partner'), { status: 409 });
+    console.warn('[Webhook Processing] Not the latest order:', {
+      webhookOrderId: orderId,
+      latestOrderId: partner.payment_details?.order_id,
+      partnerId: partner.id.toString()
+    });
+    throw Object.assign(
+      new Error('This is not the latest order for this partner'),
+      { status: 409 }
+    );
   }
 
   switch (type) {
@@ -213,12 +258,49 @@ exports.processWebhook = async (webhookData) => {
       return await handlePaymentDropped(partner, data);
     
     default:
+      console.error('[Webhook Processing] Unsupported webhook type:', { type });
       throw Object.assign(new Error('Unsupported webhook type'), { status: 400 });
   }
 };
 
 async function handlePaymentSuccess(partner, data) {
   const { payment, order } = data;
+  const partnerId = partner.id.toString();
+  
+  console.log('[Payment Success] Processing:', {
+    partnerId,
+    orderId: order.order_id,
+    paymentId: payment.cf_payment_id,
+    amount: order.order_amount
+  });
+
+  // IDEMPOTENCY CHECK: If already processed, return success
+  if (partner.payment_details?.payment_id === payment.cf_payment_id) {
+    console.log('[Payment Success] Already processed (idempotent):', {
+      partnerId,
+      paymentId: payment.cf_payment_id
+    });
+    return { 
+      success: true, 
+      message: 'Payment already processed',
+      idempotent: true
+    };
+  }
+
+  // Check if partner is already confirmed
+  if (partner.status === 'confirmed') {
+    console.log('[Payment Success] Partner already confirmed:', {
+      partnerId,
+      existingPaymentId: partner.payment_details?.payment_id
+    });
+    return {
+      success: true,
+      message: 'Partner already confirmed',
+      agreement_url: partner.agreement_url,
+      invoice_url: partner.invoice_url,
+      invoice_id: partner.invoice_id
+    };
+  }
   
   // Extract payment method type and details
   let paymentMethodType = null;
@@ -253,29 +335,55 @@ async function handlePaymentSuccess(partner, data) {
   };
 
   // Generate agreement and invoice
-  const partnerId = partner.id.toString();
   const pdfBuffer = await loadAgreementPdf(partnerId);
   
   if (!pdfBuffer) {
+    console.error('[Payment Success] Agreement PDF not found:', {
+      partnerId,
+      orderId: order.order_id
+    });
+
+    // Update status to indicate payment received but documents missing
     await partnerRepo.update(partnerId, {
-      status: 'payment_received',
+      status: 'payment_received_pending_documents',
       payment_details: paymentDetails
     });
+
+    // TODO: Add alerting system (email, Slack notification)
+    // TODO: Add to retry queue for document generation
     
+    console.error('[Payment Success] ALERT: Payment received but agreement PDF missing', {
+      partnerId,
+      email: partner.email,
+      phone: partner.phone_number,
+      amount: order.order_amount
+    });
+
     return { 
-      success: true, 
+      success: false,
+      error: 'DOCUMENTS_MISSING',
       message: 'Payment received but agreement not found',
-      requires_esign: true 
+      requires_manual_intervention: true,
+      partnerId,
+      paymentId: payment.cf_payment_id
     };
   }
 
+  console.log('[Payment Success] Generating invoice:', { partnerId });
   const invoiceId = generateInvoiceId(partnerId);
   const invoiceBuffer = await generateInvoicePDF(partner, invoiceId);
   
+  console.log('[Payment Success] Uploading documents:', { partnerId });
   const [agreementUrl, invoiceUrl] = await Promise.all([
     uploadAgreementPDF(pdfBuffer, partnerId),
     uploadInvoicePDF(invoiceBuffer, partnerId, invoiceId)
   ]);
+
+  console.log('[Payment Success] Documents uploaded:', {
+    partnerId,
+    agreementUrl,
+    invoiceUrl
+  });
 
   await partnerRepo.update(partnerId, {
     status: 'confirmed',
@@ -285,18 +393,43 @@ async function handlePaymentSuccess(partner, data) {
     payment_details: paymentDetails
   });
 
+  console.log('[Payment Success] Partner confirmed:', {
+    partnerId,
+    invoiceId,
+    paymentId: payment.cf_payment_id
+  });
+
   await clearAgreementTemp(partnerId);
 
   return { 
     success: true, 
     message: 'Payment confirmed and documents generated',
     agreement_url: agreementUrl,
-    invoice_url: invoiceUrl
+    invoice_url: invoiceUrl,
+    invoice_id: invoiceId
   };
 }
 
 async function handlePaymentFailed(partner, data) {
   const { payment, order } = data;
+  const partnerId = partner.id.toString();
+
+  console.log('[Payment Failed]:', {
+    partnerId,
+    orderId: order.order_id,
+    paymentId: payment.cf_payment_id,
+    reason: payment.payment_message
+  });
+
+  // IDEMPOTENCY CHECK
+  if (partner.payment_details?.payment_id === payment.cf_payment_id &&
+      partner.payment_details?.payment_status === 'FAILED') {
+    console.log('[Payment Failed] Already processed (idempotent):', {
+      partnerId,
+      paymentId: payment.cf_payment_id
+    });
+    return { success: true, message: 'Payment failed status already recorded' };
+  }
 
   const paymentDetails = {
     order_id: order.order_id,
@@ -311,9 +444,14 @@ async function handlePaymentFailed(partner, data) {
     status: 'FAILED'
   };
 
-  await partnerRepo.update(partner.id.toString(), {
+  await partnerRepo.update(partnerId, {
     status: 'payment_failed',
     payment_details: paymentDetails
+  });
+
+  console.log('[Payment Failed] Status updated:', {
+    partnerId,
+    paymentId: payment.cf_payment_id
   });
 
   return { success: true, message: 'Payment failed status updated' };
@@ -321,6 +459,23 @@ async function handlePaymentFailed(partner, data) {
 
 async function handlePaymentDropped(partner, data) {
   const { payment, order } = data;
+  const partnerId = partner.id.toString();
+
+  console.log('[Payment Dropped]:', {
+    partnerId,
+    orderId: order.order_id,
+    paymentId: payment.cf_payment_id
+  });
+
+  // IDEMPOTENCY CHECK
+  if (partner.payment_details?.payment_id === payment.cf_payment_id &&
+      partner.payment_details?.payment_status === 'USER_DROPPED') {
+    console.log('[Payment Dropped] Already processed (idempotent):', {
+      partnerId,
+      paymentId: payment.cf_payment_id
+    });
+    return { success: true, message: 'Payment dropped status already recorded' };
+  }
 
   const paymentDetails = {
     order_id: order.order_id,
@@ -335,9 +490,14 @@ async function handlePaymentDropped(partner, data) {
     status: 'USER_DROPPED'
   };
 
-  await partnerRepo.update(partner.id.toString(), {
+  await partnerRepo.update(partnerId, {
     status: 'payment_dropped',
     payment_details: paymentDetails
+  });
+
+  console.log('[Payment Dropped] Status updated:', {
+    partnerId,
+    paymentId: payment.cf_payment_id
   });
 
   return { success: true, message: 'Payment dropped status updated' };
