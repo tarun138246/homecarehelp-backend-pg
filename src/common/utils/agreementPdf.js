@@ -3,10 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const env = require('../config/env');
 
-// Build the path to logo.png and convert to base64 data URI
+// Build the path to logo.png (project-root/assets/logo.png) and convert to base64 data URI
 const logoPath = path.join(__dirname, '..', '..', '..', 'assets', 'logo.png');
 let LOGO_BASE64 = '';
 
+// Read the logo file and convert to base64 data URI
 try {
   if (fs.existsSync(logoPath)) {
     const logoBuffer = fs.readFileSync(logoPath);
@@ -28,12 +29,7 @@ async function generateAgreementPDF(partner, signatureBase64) {
   const browser = await puppeteer.launch({
     headless: 'new',
     executablePath: env.puppeteerExecutablePath || null,
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox',
-      '--disable-web-security',
-      '--font-render-hinting=none'
-    ]
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--font-render-hinting=none']
   });
 
   try {
@@ -42,10 +38,7 @@ async function generateAgreementPDF(partner, signatureBase64) {
     // Set viewport for better rendering
     await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
     
-    await page.setContent(html, { 
-      waitUntil: 'networkidle0',
-      timeout: 30000 
-    });
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
     
     // Wait for fonts to load
     await page.evaluate(() => document.fonts.ready);
@@ -79,7 +72,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
   <meta charset="UTF-8">
   <title>Service Partner Agreement – Homecarehelp</title>
   <style>
-    /* Load Hindi font with multiple fallbacks */
+    /* Load Hindi font directly */
     @font-face {
       font-family: 'Noto Sans Devanagari';
       src: url('https://fonts.gstatic.com/s/notosansdevanagari/v24/TuGoTUfzXI5FBtUq5a8bjKYT7Hm4K4a5.ttf') format('truetype');
@@ -104,9 +97,33 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       font-display: block;
     }
 
+    @font-face {
+      font-family: 'Inter';
+      src: url('https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7W0Q5n-wU.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: 'Inter';
+      src: url('https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7W0Q5n-wU.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+      font-display: block;
+    }
+
+    @font-face {
+      font-family: 'Inter';
+      src: url('https://fonts.gstatic.com/s/inter/v13/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7W0Q5n-wU.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: block;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Noto Sans Devanagari', 'Noto Sans', 'Arial Unicode MS', 'Mangal', 'Lohit Devanagari', sans-serif;
+      font-family: 'Inter', 'Noto Sans', sans-serif;
       color: #1a1a1a;
       background: #ffffff;
       font-size: 10.5pt;
@@ -114,6 +131,10 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       -webkit-font-smoothing: antialiased;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+    }
+
+    .hindi-font {
+      font-family: 'Noto Sans Devanagari', 'Arial Unicode MS', 'Mangal', 'Lohit Devanagari', sans-serif;
     }
 
     .page {
@@ -228,12 +249,12 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
     }
 
     .term-section-title {
+      font-family: 'Noto Sans Devanagari', 'Arial Unicode MS', 'Mangal', 'Lohit Devanagari', sans-serif;
       font-size: 11.5px;
       font-weight: 700;
       color: #1a1a1a;
       margin-bottom: 2.5mm;
       letter-spacing: 0.3px;
-      font-family: 'Noto Sans Devanagari', 'Noto Sans', 'Arial Unicode MS', sans-serif;
     }
 
     .term-section .hindi-text {
@@ -392,6 +413,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
     <div class="terms-wrapper">
       <div class="terms-page-title">Terms &amp; Conditions</div>
 
+      <!-- Clause 1 -->
       <div class="term-section">
         <div class="term-section-title">1. व्यावसायिक जुड़ाव एवं ऑनबोर्डिंग शुल्क (Commercial Association &amp; Registration Fee)</div>
         <div class="hindi-text">यह कि मैं Homecarehelp प्लेटफॉर्म के साथ एक स्वतंत्र सर्विस पार्टनर (Independent Technician) के रूप में जुड़ रहा हूँ। मैं कंपनी का कर्मचारी (Employee) नहीं हूँ। यह कि मैंने प्लेटफॉर्म पर पंजीकरण, बैकग्राउंड वेरिफिकेशन और वेलकम किट (I-Card, T-Shirt, दस्तावेज़) के लिए ₹2,950 (दो हजार नौ सौ पचास रुपये) का भुगतान किया है।</div>
@@ -399,6 +421,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       </div>
       <hr class="term-separator">
 
+      <!-- Clause 2 -->
       <div class="term-section">
         <div class="term-section-title">2. गैर-वापसी योग्य नीति की पूर्ण स्वीकृति (Acknowledgement of Non-Refundable Policy)</div>
         <div class="hindi-text">मैं पूरी तरह से समझता हूँ और स्वीकार करता हूँ कि यह ₹2,950 का शुल्क पूर्णतः गैर-वापसी योग्य (100% Non-Refundable) है। भविष्य में काम (Leads) की मात्रा कम होने, व्यक्तिगत कारणों से काम बंद करने या किसी भी अन्य परिस्थिति में, मैं इस राशि की वापसी (Refund) का दावा नहीं करूँगा।</div>
@@ -406,6 +429,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       </div>
       <hr class="term-separator">
 
+      <!-- Clause 3 -->
       <div class="term-section">
         <div class="term-section-title">3. काम/लीड्स की उपलब्धता और प्रतीक्षा अवधि (Work &amp; Lead Allocation Disclaimer)</div>
         <div class="hindi-text">मैं यह स्वीकार करता हूँ कि Homecarehelp एक सर्विस एग्रीगेटर है जो बाजार की मांग और ग्राहकों की आवश्यकता के आधार पर काम आवंटित करता है। कंपनी मुझे तुरंत, नियमित या प्रतिदिन काम (Leads) देने की कोई गारंटी नहीं देती है। मेरे स्थानीय क्षेत्र (PIN Code) या शहर में ग्राहकों की मांग और मौसम (Seasonal demand) के अनुसार काम मिलने में 15 से 30 दिन या उससे अधिक का समय (Delay) लग सकता है, जिसके लिए मैं पूरी तरह से सहमत हूँ।</div>
@@ -413,6 +437,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       </div>
       <hr class="term-separator">
 
+      <!-- Clause 4 -->
       <div class="term-section">
         <div class="term-section-title">4. कमीशन और भुगतान की शर्तें (Commission &amp; Payout Terms)</div>
         <div class="hindi-text">मैं सहमत हूँ कि मेरे द्वारा सफलतापूर्वक पूरे किए गए प्रत्येक काम (Service) के कुल शुल्क का 70% हिस्सा मेरा (सर्विस पार्टनर का) होगा और 30% हिस्सा कंपनी (Homecarehelp) का होगा। मैं ग्राहकों से तयशुदा दर से अधिक पैसे नहीं वसूलूँगा और न ही कंपनी की जानकारी के बिना ग्राहकों से सीधा संबंध बनाऊँगा।</div>
@@ -420,6 +445,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       </div>
       <hr class="term-separator">
 
+      <!-- Clause 5 -->
       <div class="term-section">
         <div class="term-section-title">5. भाषा एवं समझ का घोषणा पत्र (Language &amp; Understanding Declaration)</div>
         <div class="hindi-text">मैं यह प्रमाणित करता हूँ कि मैंने इस शपथ पत्र और कंपनी के सभी नियमों व शर्तों को अपनी क्षेत्रीय/मातृभाषा (Regional Language) में गूगल ट्रांसलेट (Google Translate) या किसी अन्य माध्यम से अनुवाद करके पूरी तरह से पढ़ और समझ लिया है। भाषा की समझ न होने का बहाना बनाकर मैं भविष्य में किसी भी नियम से पीछे नहीं हटूँगा। पूरी संतुष्टि के बाद ही मैं इस पर हस्ताक्षर कर रहा हूँ।</div>
@@ -427,6 +453,7 @@ function buildAgreementHtml(partner, signatureBase64, logoBase64, agreementDate,
       </div>
       <hr class="term-separator">
 
+      <!-- Clause 6 -->
       <div class="term-section">
         <div class="term-section-title">6. शिकायत निवारण एवं कानूनी क्षेत्राधिकार (Grievance &amp; Legal Dispute Resolution)</div>
         <div class="hindi-text">मैं यह घोषणा करता हूँ कि काम मिलने में देरी या काम न होने को मैं कभी भी "ऑनलाइन फ्रॉड", "धोखाधड़ी" या "साइबर अपराध" की श्रेणी में नहीं मानूँगा। इसलिए, मैं इस व्यापारिक विषय को लेकर बैंक, पेमेंट गेटवे या साइबर क्राइम पोर्टल (Cyber Cell) पर कोई झूठी शिकायत दर्ज नहीं करूँगा। यदि भविष्य में मेरा कंपनी के साथ सेवाओं या किसी भी बात को लेकर कोई विवाद होता है और मैं उसकी शिकायत या कानूनी कार्रवाई करना चाहता हूँ, तो मैं इसके लिए केवल उपभोक्ता फोरम (Consumer Forum) या संबंधित दीवानी न्यायालय (Civil Court) का ही दरवाजा खटखटाऊँगा। इस प्रकार के किसी भी कानूनी विवाद की स्थिति में, न्यायिक क्षेत्र केवल झांसी, उत्तर प्रदेश (Jhansi, UP) की अदालतें ही होंगी।</div>
