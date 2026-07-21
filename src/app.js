@@ -28,14 +28,26 @@ const app = express();
 app.set('trust proxy', 1);
 
 // CORS
-const allowedOrigins = env.corsOrigins && env.corsOrigins.length 
-  ? env.corsOrigins 
-  : [
-      'https://www.homecarehelp.in',
-      'https://homecarehelp.in',
-      'http://localhost:3000',
-      'http://localhost:3001'
-    ];
+const allowedOrigins = [
+  // Your frontend domains
+  'https://www.homecarehelp.in',
+  'https://homecarehelp.in',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  
+ // CASHFREE Sandbox IP's
+  '52.66.25.127',
+  '15.206.45.168',
+// Cashfree PROD IP's
+  '52.66.101.190',
+  '3.109.102.144',
+  '18.60.134.245',
+  '18.60.183.142',
+  
+  // Cashfree API URL
+  'https://sandbox.cashfree.com',
+  'https://api.cashfree.com',
+];
 
 app.use(cors({
   origin: function (origin, callback) {

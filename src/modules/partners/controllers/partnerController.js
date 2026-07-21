@@ -55,25 +55,24 @@ exports.webhook = async (req, res, next) => {
   const startTime = Date.now();
   
   try {
-    // Extract webhook signature headers
-    const signature = req.headers['x-webhook-signature'];
-    const timestamp = req.headers['x-webhook-timestamp'];
+    // Extract webhook signature headers (case-insensitive)
+    const signature = req.headers['x-webhook-signature'] 
+      || req.headers['X-Webhook-Signature'];
+    const timestamp = req.headers['x-webhook-timestamp'] 
+      || req.headers['X-Webhook-Timestamp'];
 
-    // Log webhook receipt
     logger.webhook('Received', {
       timestamp: new Date().toISOString(),
       signature: signature ? 'present' : 'missing',
       timestampHeader: timestamp,
       bodyLength: req.rawBody?.length || 0,
-      userAgent: req.headers['user-agent']
+      type: req.body?.type
     });
 
-    // Verify webhook signature (throws on failure)
+    // Verify webhook signature
     verifyWebhookSignature(req.rawBody, signature, timestamp);
 
-    logger.webhook('Signature verified successfully', { timestamp });
-
-    // Parse webhook data (already parsed in app.js but validate)
+    // Parse webhook data
     const webhookData = req.body;
     
     if (!webhookData || !webhookData.type || !webhookData.data) {
@@ -83,26 +82,25 @@ exports.webhook = async (req, res, next) => {
       );
     }
 
-    logger.webhook('Validated payload', {
+    logger.webhook('Validated', {
       type: webhookData.type,
       orderId: webhookData.data?.order?.order_id
     });
 
-    // Respond immediately with 200 OK (Cashfree requirement)
+    // Respond immediately with 200 OK
     res.status(200).json({ 
       success: true, 
-      message: 'Webhook received and queued for processing',
+      message: 'Webhook received',
       receivedAt: new Date().toISOString()
     });
 
-    // Process webhook asynchronously (don't await)
+    // Process asynchronously
     partnerService.processWebhook(webhookData)
       .then(result => {
         const duration = Date.now() - startTime;
-        logger.webhook('Processing completed successfully', {
+        logger.webhook('Processing completed', {
           duration: `${duration}ms`,
           type: webhookData.type,
-          orderId: webhookData.data?.order?.order_id,
           result
         });
       })
@@ -110,15 +108,13 @@ exports.webhook = async (req, res, next) => {
         const duration = Date.now() - startTime;
         logger.webhookError('Processing failed', err, {
           duration: `${duration}ms`,
-          type: webhookData.type,
-          orderId: webhookData.data?.order?.order_id
+          type: webhookData.type
         });
       });
 
   } catch (err) {
-    // Signature verification or validation errors - respond with error
     const duration = Date.now() - startTime;
-    logger.webhookError('Validation error', err, {
+    logger.webhookError('Verification failed', err, {
       duration: `${duration}ms`,
       status: err.status || 500
     });
