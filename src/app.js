@@ -1,3 +1,5 @@
+const sentryConfig = require('./common/config/sentry');
+const sentryEnabled = sentryConfig.initSentry();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -20,8 +22,6 @@ const bookingPaymentRoutes = require('./modules/bookings/routes/paymentRoutes');
 const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
-// Initialize Sentry FIRST
-const sentryEnabled = sentryConfig.initSentry();
 
 const app = express();
 
