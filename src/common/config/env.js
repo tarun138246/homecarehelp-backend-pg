@@ -57,5 +57,10 @@ module.exports = {
     'http://localhost:3001'
   ],
 
-  puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
+  puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+
+  // Sentry error tracking
+  sentryDsn: process.env.SENTRY_DSN || null,
+  sentryEnvironment: process.env.SENTRY_ENVIRONMENT || nodeEnv,
+  sentryTracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1')
 };

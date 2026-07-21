@@ -9,6 +9,7 @@ const { generateInvoicePDF } = require('../../../common/utils/invoicePdf');
 const pratimaClient = require('../../../common/utils/pratimaClient');
 const partnerSessions = require('./partnerSessionStore');
 const env = require('../../../common/config/env');
+const { captureException, captureMessage } = require('../../../common/config/sentry');
 
 const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';

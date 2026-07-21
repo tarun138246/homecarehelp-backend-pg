@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
+const { initSentry, Sentry } = require('./common/config/sentry');
 const errorHandler = require('./common/middlewares/errorHandler');
 const { apiLimiter, authLimiter } = require('./common/middlewares/rateLimiter');
 const env = require('./common/config/env');
@@ -19,7 +20,16 @@ const bookingPaymentRoutes = require('./modules/bookings/routes/paymentRoutes');
 const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
+// Initialize Sentry FIRST (before creating Express app)
+initSentry();
+
 const app = express();
+
+// Sentry request handler MUST be the first middleware
+if (Sentry) {
+  app.use(Sentry.Handlers.requestHandler());
+  app.use(Sentry.Handlers.tracingHandler());
+}
 
 app.set('trust proxy', 1);
 
@@ -100,6 +110,11 @@ app.use('/api/admin', adminRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+
+// Sentry error handler MUST be before other error handlers
+if (Sentry) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 
 // Error handler
 app.use(errorHandler);

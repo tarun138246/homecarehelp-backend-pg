@@ -1,4 +1,5 @@
 const env = require('../config/env');
+const { captureException } = require('../config/sentry');
 
 module.exports = (err, req, res, next) => {
   const status = err.status || 500;
@@ -23,6 +24,15 @@ module.exports = (err, req, res, next) => {
   };
 
   console.error('[Error Handler]:', errorLog);
+
+  // Capture error in Sentry for 500 errors and specific critical errors
+  if (status === 500 || err.captureInSentry) {
+    captureException(err, {
+      errorLog,
+      userId: req.user?.userId,
+      requestId: req.id
+    });
+  }
 
   // Unexpected (unstatused) errors can carry raw Prisma/internal details —
   // don't leak those to clients outside development.

@@ -1,5 +1,6 @@
 const partnerService = require('../services/partnerService');
 const { verifyWebhookSignature } = require('../../../common/utils/webhookVerification');
+const logger = require('../../../common/utils/logger');
 
 exports.register = async (req, res, next) => {
   try {
@@ -59,17 +60,18 @@ exports.webhook = async (req, res, next) => {
     const timestamp = req.headers['x-webhook-timestamp'];
 
     // Log webhook receipt
-    console.log('[Webhook] Received:', {
+    logger.webhook('Received', {
       timestamp: new Date().toISOString(),
       signature: signature ? 'present' : 'missing',
       timestampHeader: timestamp,
-      bodyLength: req.rawBody?.length || 0
+      bodyLength: req.rawBody?.length || 0,
+      userAgent: req.headers['user-agent']
     });
 
     // Verify webhook signature (throws on failure)
     verifyWebhookSignature(req.rawBody, signature, timestamp);
 
-    console.log('[Webhook] Signature verified successfully');
+    logger.webhook('Signature verified successfully', { timestamp });
 
     // Parse webhook data (already parsed in app.js but validate)
     const webhookData = req.body;
@@ -81,8 +83,10 @@ exports.webhook = async (req, res, next) => {
       );
     }
 
-    console.log('[Webhook] Type:', webhookData.type);
-    console.log('[Webhook] Order ID:', webhookData.data?.order?.order_id);
+    logger.webhook('Validated payload', {
+      type: webhookData.type,
+      orderId: webhookData.data?.order?.order_id
+    });
 
     // Respond immediately with 200 OK (Cashfree requirement)
     res.status(200).json({ 
@@ -95,7 +99,7 @@ exports.webhook = async (req, res, next) => {
     partnerService.processWebhook(webhookData)
       .then(result => {
         const duration = Date.now() - startTime;
-        console.log('[Webhook] Processing completed successfully:', {
+        logger.webhook('Processing completed successfully', {
           duration: `${duration}ms`,
           type: webhookData.type,
           orderId: webhookData.data?.order?.order_id,
@@ -104,23 +108,18 @@ exports.webhook = async (req, res, next) => {
       })
       .catch(err => {
         const duration = Date.now() - startTime;
-        console.error('[Webhook] Processing failed:', {
+        logger.webhookError('Processing failed', err, {
           duration: `${duration}ms`,
           type: webhookData.type,
-          orderId: webhookData.data?.order?.order_id,
-          error: err.message,
-          stack: err.stack
+          orderId: webhookData.data?.order?.order_id
         });
-        // TODO: Add alerting system here (email, Slack, etc.)
-        // TODO: Add retry queue for failed webhook processing
       });
 
   } catch (err) {
     // Signature verification or validation errors - respond with error
     const duration = Date.now() - startTime;
-    console.error('[Webhook] Validation error:', {
+    logger.webhookError('Validation error', err, {
       duration: `${duration}ms`,
-      error: err.message,
       status: err.status || 500
     });
     next(err);
