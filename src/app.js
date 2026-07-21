@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
-const { initSentry, Sentry } = require('./common/config/sentry');
+const sentryConfig = require('./common/config/sentry');
 const errorHandler = require('./common/middlewares/errorHandler');
 const { apiLimiter, authLimiter } = require('./common/middlewares/rateLimiter');
 const env = require('./common/config/env');
@@ -21,14 +21,17 @@ const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
 // Initialize Sentry FIRST (before creating Express app)
-const sentryEnabled = initSentry();
+const sentryEnabled = sentryConfig.initSentry();
+const Sentry = sentryEnabled ? sentryConfig.Sentry : null;
 
 const app = express();
 
 // Sentry request handler MUST be the first middleware (if enabled)
-if (sentryEnabled && Sentry) {
+if (sentryEnabled && Sentry && Sentry.Handlers) {
   app.use(Sentry.Handlers.requestHandler());
   app.use(Sentry.Handlers.tracingHandler());
+} else if (sentryEnabled) {
+  console.warn('[Sentry] Sentry initialized but Handlers not available');
 }
 
 app.set('trust proxy', 1);
@@ -45,7 +48,6 @@ const allowedOrigins = env.corsOrigins && env.corsOrigins.length
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
@@ -65,24 +67,20 @@ app.use(cors({
     'Origin'
   ],
   credentials: true,
-  maxAge: 86400 // Cache preflight for 24 hours
+  maxAge: 86400
 }));
 
-// Handle preflight requests explicitly
 app.options('*', cors());
 
-// Now helmet after CORS
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin resource sharing
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
-// Special handling for webhook endpoints - capture raw body BEFORE JSON parsing
-// This is required for webhook signature verification
+// Webhook raw body handling
 app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
-  // express.raw() stores the raw body in req.body as a Buffer
   req.rawBody = req.body.toString('utf8');
   try {
     req.body = JSON.parse(req.rawBody);
@@ -92,7 +90,7 @@ app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json',
   }
 });
 
-// Standard JSON parsing for all other routes
+// Standard JSON parsing
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
@@ -111,12 +109,12 @@ app.use('/api/admin', adminRoutes);
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
-// Sentry error handler MUST be before other error handlers (if enabled)
-if (sentryEnabled && Sentry) {
+// Sentry error handler
+if (sentryEnabled && Sentry && Sentry.Handlers) {
   app.use(Sentry.Handlers.errorHandler());
 }
 
-// Error handler
+// Custom error handler
 app.use(errorHandler);
 
 // Initialize cron jobs
