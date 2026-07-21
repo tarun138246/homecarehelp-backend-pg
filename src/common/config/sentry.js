@@ -1,5 +1,4 @@
 const Sentry = require('@sentry/node');
-const { nodeProfilingIntegration } = require('@sentry/profiling-node');
 const env = require('./env');
 
 let sentryInitialized = false;
