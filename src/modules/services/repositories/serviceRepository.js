@@ -1,7 +1,7 @@
 const prisma = require('../../../common/prismaClient');
 
 const BASIC_SELECT = { 
-  service_id: true, 
+  service_id: true,
   service_name: true, 
   images: true, 
   base_price: true 
@@ -17,7 +17,64 @@ exports.findAll = (where = {}, orderBy, skip, take) => {
   });
 };
 
-// Add count method for pagination
+// New method: Full-text search with PostgreSQL tsvector
+exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip, take) => {
+  // Clean and prepare the search term for tsquery
+  const formattedTerm = searchTerm
+    .trim()
+    .split(/\s+/)
+    .map(term => `${term}:*`)  
+    .join(' & ');  
+  
+  const where = {
+    ...additionalWhere,
+    AND: [
+      // Full-text search condition
+      {
+        search_vector: {
+          search: formattedTerm
+        }
+      }
+    ]
+  };
+
+  return prisma.services.findMany({
+    where,
+    select: {
+      ...BASIC_SELECT,
+      // Add relevance score for ranking
+      _relevance: {
+        fields: ['search_vector'],
+        search: formattedTerm,
+        sort: true,
+      }
+    },
+    orderBy: orderBy || {
+      _relevance: 'desc'  // Order by relevance by default
+    },
+    skip,
+    take
+  });
+};
+
+// Count for search results
+exports.countSearchResults = async (searchTerm, additionalWhere = {}) => {
+  const formattedTerm = searchTerm
+    .trim()
+    .split(/\s+/)
+    .map(term => `${term}:*`)
+    .join(' & ');
+  
+  return prisma.services.count({
+    where: {
+      ...additionalWhere,
+      search_vector: {
+        search: formattedTerm
+      }
+    }
+  });
+};
+
 exports.countServices = (where = {}) => {
   return prisma.services.count({ where });
 };
@@ -51,7 +108,6 @@ exports.findByCategoryId = (categoryId, skip, take) => {
   });
 };
 
-// Add count for category services
 exports.countByCategoryId = (categoryId) => {
   return prisma.services.count({
     where: {
@@ -70,7 +126,6 @@ exports.findBySubcategoryId = (subcategoryId, skip, take) => {
   });
 };
 
-// Add count for subcategory services
 exports.countBySubcategoryId = (subcategoryId) => {
   return prisma.services.count({
     where: { is_active: true, subcategory_id: Number(subcategoryId) }

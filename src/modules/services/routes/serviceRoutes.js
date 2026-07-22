@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const serviceController = require('../controllers/serviceController');
 
-// Static/prefixed paths must be declared before the catch-all `/:serviceId`.
+router.get('/search', serviceController.searchServices);
 router.get('/', serviceController.listServices);
 router.get('/categories/list', serviceController.getCategories);
 router.get('/categories/:categoryId', serviceController.getCategoryWithSubcategories);

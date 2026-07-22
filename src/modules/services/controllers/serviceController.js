@@ -8,9 +8,27 @@ exports.listServices = async (req, res, next) => {
       min_price: min_price ?? minPrice,
       max_price: max_price ?? maxPrice,
       popular,
-      page  
+      page
     });
     res.json(services);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// New endpoint for advanced search
+exports.searchServices = async (req, res, next) => {
+  try {
+    const { q, category_id, subcategory_id, min_price, max_price, page } = req.query;
+    const filters = { category_id, subcategory_id, min_price, max_price };
+    
+    // Remove undefined filters
+    Object.keys(filters).forEach(key => 
+      filters[key] === undefined && delete filters[key]
+    );
+    
+    const results = await serviceService.searchServices(q, filters, page);
+    res.json(results);
   } catch (err) {
     next(err);
   }
