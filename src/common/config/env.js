@@ -42,6 +42,10 @@ module.exports = {
   cashfreeApiVersion: process.env.CASHFREE_API_VERSION || '2025-01-01',
   cashfreeReturnUrl: process.env.CASHFREE_RETURN_URL || 'https://homecarehelp.in/payment/return',
 
+  // Encryption keys for partner ID proofs
+  ENCRYPTION_KEY_1: process.env.ENCRYPTION_KEY_1,
+  ENCRYPTION_KEY_2: process.env.ENCRYPTION_KEY_2,
+
   agreementTempDir: process.env.AGREEMENT_TEMP_DIR || './tmp/agreements',
   baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
 
