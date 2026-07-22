@@ -2,13 +2,16 @@ const serviceRepo = require('../repositories/serviceRepository');
 const categoryRepo = require('../repositories/categoryRepository');
 const subcategoryRepo = require('../repositories/subcategoryRepository');
 
+const DEFAULT_PAGE_SIZE = 20;
+
 const toBasicShape = (s) => ({
+  service_id: s.service_id, 
   service_name: s.service_name,
   images: s.images,
   base_price: s.base_price
 });
 
-exports.listServices = async ({ search, min_price, max_price, popular }) => {
+exports.listServices = async ({ search, min_price, max_price, popular, page = 1 }) => {
   const where = { is_active: true };
   if (search) where.service_name = { contains: search, mode: 'insensitive' };
   if (popular === 'true' || popular === true) where.is_popular = true;
@@ -25,8 +28,31 @@ exports.listServices = async ({ search, min_price, max_price, popular }) => {
     ? { popularity_rank: 'asc' }
     : undefined;
 
-  const services = await serviceRepo.findAll(where, orderBy);
-  return services.map(toBasicShape);
+  // Calculate pagination
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const skip = (pageNum - 1) * DEFAULT_PAGE_SIZE;
+  const take = DEFAULT_PAGE_SIZE;
+
+  // Get total count and paginated results
+  const [total, services] = await Promise.all([
+    serviceRepo.countServices(where),
+    serviceRepo.findAll(where, orderBy, skip, take)
+  ]);
+
+  // Calculate pagination metadata
+  const totalPages = Math.ceil(total / DEFAULT_PAGE_SIZE);
+
+  return {
+    data: services.map(toBasicShape),
+    pagination: {
+      current_page: pageNum,
+      per_page: DEFAULT_PAGE_SIZE,
+      total_items: total,
+      total_pages: totalPages,
+      has_next_page: pageNum < totalPages,
+      has_previous_page: pageNum > 1
+    }
+  };
 };
 
 exports.getServiceDetail = async (serviceId) => {
@@ -57,12 +83,52 @@ exports.getCategoryWithSubcategories = async (categoryId) => {
   };
 };
 
-exports.getServicesByCategory = async (categoryId) => {
-  const services = await serviceRepo.findByCategoryId(categoryId);
-  return services.map(toBasicShape);
+exports.getServicesByCategory = async (categoryId, page = 1) => {
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const skip = (pageNum - 1) * DEFAULT_PAGE_SIZE;
+  const take = DEFAULT_PAGE_SIZE;
+
+  const [total, services] = await Promise.all([
+    serviceRepo.countByCategoryId(categoryId),
+    serviceRepo.findByCategoryId(categoryId, skip, take)
+  ]);
+
+  const totalPages = Math.ceil(total / DEFAULT_PAGE_SIZE);
+
+  return {
+    data: services.map(toBasicShape),
+    pagination: {
+      current_page: pageNum,
+      per_page: DEFAULT_PAGE_SIZE,
+      total_items: total,
+      total_pages: totalPages,
+      has_next_page: pageNum < totalPages,
+      has_previous_page: pageNum > 1
+    }
+  };
 };
 
-exports.getServicesBySubcategory = async (subcategoryId) => {
-  const services = await serviceRepo.findBySubcategoryId(subcategoryId);
-  return services.map(toBasicShape);
+exports.getServicesBySubcategory = async (subcategoryId, page = 1) => {
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const skip = (pageNum - 1) * DEFAULT_PAGE_SIZE;
+  const take = DEFAULT_PAGE_SIZE;
+
+  const [total, services] = await Promise.all([
+    serviceRepo.countBySubcategoryId(subcategoryId),
+    serviceRepo.findBySubcategoryId(subcategoryId, skip, take)
+  ]);
+
+  const totalPages = Math.ceil(total / DEFAULT_PAGE_SIZE);
+
+  return {
+    data: services.map(toBasicShape),
+    pagination: {
+      current_page: pageNum,
+      per_page: DEFAULT_PAGE_SIZE,
+      total_items: total,
+      total_pages: totalPages,
+      has_next_page: pageNum < totalPages,
+      has_previous_page: pageNum > 1
+    }
+  };
 };

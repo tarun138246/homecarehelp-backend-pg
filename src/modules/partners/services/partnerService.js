@@ -15,7 +15,30 @@ const { secureClear } = require('../../../common/utils/memoryCleanup');
 const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';
 const REQUIRED_FIELDS = ['name', 'email', 'phone_number', 'working_city', 'pincode', 'address', 'selected_services', 'id_proof'];
+
+// Valid ID types (standardized)
 const VALID_ID_TYPES = ['PAN', 'AADHAR', 'DL'];
+
+// Mapping for common ID type variations (case-insensitive)
+const ID_TYPE_MAP = {
+  'PAN': 'PAN',
+  'PAN CARD': 'PAN',
+  'PANCARD': 'PAN',
+  'AADHAR': 'AADHAR',
+  'AADHAAR': 'AADHAR',
+  'AADHAR CARD': 'AADHAR',
+  'AADHAAR CARD': 'AADHAR',
+  'AADHARCARD': 'AADHAR',
+  'AADHAARCARD': 'AADHAR',
+  'DL': 'DL',
+  'DRIVING LICENSE': 'DL',
+  'DRIVING LICENCE': 'DL',
+  'DRIVING': 'DL',
+  'DRIVING LICENSE CARD': 'DL',
+  'DRIVER LICENSE': 'DL',
+  'DRIVER LICENCE': 'DL'
+};
+
 const ID_VALIDATION_PATTERNS = {
   PAN: /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/,
   AADHAR: /^\d{12}$/,
@@ -50,31 +73,77 @@ function validateRegistration(data) {
   }
 }
 
+/**
+ * Validates and normalizes ID proofs
+ * Handles case-insensitive matching and common variations
+ */
 function validateIdProofs(idProofs) {
   const validIdProofs = [];
   
   for (const item of idProofs) {
-    // Validate ID type
-    const idType = item.name?.toUpperCase();
+    if (!item.name || !item.number) {
+      throw Object.assign(
+        new Error('Each id_proof item requires name and number'), 
+        { status: 400 }
+      );
+    }
+    
+    // Normalize: trim whitespace, convert to uppercase
+    const normalizedInput = item.name.trim().toUpperCase();
+    
+    // Find the standardized ID type from mapping or direct match
+    let idType = ID_TYPE_MAP[normalizedInput] || normalizedInput;
+    
+    // Debug logging (remove in production if needed)
+    console.log('[ID Validation]', {
+      original: item.name,
+      normalized: normalizedInput,
+      mapped: idType
+    });
+    
+    // Validate it's one of the accepted types
     if (!VALID_ID_TYPES.includes(idType)) {
+      // Provide a helpful error message
+      const validOptions = VALID_ID_TYPES.map(t => {
+        switch(t) {
+          case 'PAN': return 'PAN Card';
+          case 'AADHAR': return 'Aadhaar Card';
+          case 'DL': return 'Driving License';
+          default: return t;
+        }
+      }).join(', ');
+      
       throw Object.assign(
-        new Error(`Invalid ID type: ${item.name}. Allowed: PAN, AADHAR, DL`),
+        new Error(`Invalid ID type: "${item.name}". Please use one of: ${validOptions}`), 
         { status: 400 }
       );
     }
     
-    // Validate ID number format
+    // Validate ID number format based on type
     const pattern = ID_VALIDATION_PATTERNS[idType];
-    if (!pattern.test(item.number)) {
+    if (!pattern.test(item.number.trim())) {
+      let formatHint = '';
+      switch(idType) {
+        case 'PAN':
+          formatHint = 'Format: 5 letters + 4 digits + 1 letter (e.g., ABCDE1234F)';
+          break;
+        case 'AADHAR':
+          formatHint = 'Format: 12 digits (e.g., 123456789012)';
+          break;
+        case 'DL':
+          formatHint = 'Format: 2 letters + 2 digits + 4 digits + 7 digits (e.g., MH0120200000001)';
+          break;
+      }
       throw Object.assign(
-        new Error(`Invalid ${idType} number format: ${item.number}`),
+        new Error(`Invalid ${idType} number format: "${item.number}". ${formatHint}`), 
         { status: 400 }
       );
     }
     
+    // Store with standardized name (uppercase)
     validIdProofs.push({
-      name: idType,
-      number: item.number
+      name: idType,  // Always store as PAN, AADHAR, or DL
+      number: item.number.trim()
     });
   }
   
@@ -84,17 +153,28 @@ function validateIdProofs(idProofs) {
 exports.register = async (partnerData) => {
   validateRegistration(partnerData);
 
-  // Validate ID proofs
+  // Validate ID proofs (now handles case-insensitive matching)
   const validIdProofs = validateIdProofs(partnerData.id_proof);
 
   const idProofs = validIdProofs.map((item) => {
-    const { encryptedData, iv, keyUsed } = encrypt(item.number);
-    return { 
-      name: item.name, 
-      number: encryptedData, 
-      iv,
-      keyUsed // Store 1 or 2 instead of full key
-    };
+    try {
+      const { encryptedData, iv, keyUsed } = encrypt(item.number);
+      return { 
+        name: item.name, 
+        number: encryptedData, 
+        iv,
+        keyUsed // Store 1 or 2 instead of full key
+      };
+    } catch (encryptError) {
+      console.error('[Encryption Error]', {
+        idType: item.name,
+        error: encryptError.message
+      });
+      throw Object.assign(
+        new Error('Unable to secure ID proof data. Please try again.'), 
+        { status: 500 }
+      );
+    }
   });
 
   const address = typeof partnerData.address === 'string'

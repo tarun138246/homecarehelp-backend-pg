@@ -2,12 +2,13 @@ const serviceService = require('../services/serviceService');
 
 exports.listServices = async (req, res, next) => {
   try {
-    const { search, min_price, max_price, minPrice, maxPrice, popular } = req.query;
+    const { search, min_price, max_price, minPrice, maxPrice, popular, page } = req.query;
     const services = await serviceService.listServices({
       search,
       min_price: min_price ?? minPrice,
       max_price: max_price ?? maxPrice,
-      popular
+      popular,
+      page  
     });
     res.json(services);
   } catch (err) {
@@ -44,7 +45,8 @@ exports.getCategoryWithSubcategories = async (req, res, next) => {
 
 exports.getServicesByCategory = async (req, res, next) => {
   try {
-    const services = await serviceService.getServicesByCategory(req.params.categoryId);
+    const { page } = req.query;
+    const services = await serviceService.getServicesByCategory(req.params.categoryId, page);
     res.json(services);
   } catch (err) {
     next(err);
@@ -53,7 +55,8 @@ exports.getServicesByCategory = async (req, res, next) => {
 
 exports.getServicesBySubcategory = async (req, res, next) => {
   try {
-    const services = await serviceService.getServicesBySubcategory(req.params.subcategoryId);
+    const { page } = req.query;
+    const services = await serviceService.getServicesBySubcategory(req.params.subcategoryId, page);
     res.json(services);
   } catch (err) {
     next(err);
