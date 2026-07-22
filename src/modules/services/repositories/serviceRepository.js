@@ -1,10 +1,12 @@
+// repositories/serviceRepository.js
 const prisma = require('../../../common/prismaClient');
 
 const BASIC_SELECT = { 
   service_id: true,
   service_name: true, 
   images: true, 
-  base_price: true 
+  base_price: true,
+  description: true 
 };
 
 exports.findAll = (where = {}, orderBy, skip, take) => {
@@ -17,9 +19,8 @@ exports.findAll = (where = {}, orderBy, skip, take) => {
   });
 };
 
-// New method: Full-text search with PostgreSQL tsvector
+// Full-text search with PostgreSQL tsvector
 exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip, take) => {
-  // Clean and prepare the search term for tsquery
   const formattedTerm = searchTerm
     .trim()
     .split(/\s+/)
@@ -29,7 +30,6 @@ exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip,
   const where = {
     ...additionalWhere,
     AND: [
-      // Full-text search condition
       {
         search_vector: {
           search: formattedTerm
@@ -42,7 +42,6 @@ exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip,
     where,
     select: {
       ...BASIC_SELECT,
-      // Add relevance score for ranking
       _relevance: {
         fields: ['search_vector'],
         search: formattedTerm,
@@ -50,14 +49,13 @@ exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip,
       }
     },
     orderBy: orderBy || {
-      _relevance: 'desc'  // Order by relevance by default
+      _relevance: 'desc'
     },
     skip,
     take
   });
 };
 
-// Count for search results
 exports.countSearchResults = async (searchTerm, additionalWhere = {}) => {
   const formattedTerm = searchTerm
     .trim()

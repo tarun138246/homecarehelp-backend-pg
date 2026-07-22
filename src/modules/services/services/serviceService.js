@@ -1,3 +1,4 @@
+// services/serviceService.js
 const serviceRepo = require('../repositories/serviceRepository');
 const categoryRepo = require('../repositories/categoryRepository');
 const subcategoryRepo = require('../repositories/subcategoryRepository');
@@ -9,7 +10,7 @@ const toBasicShape = (s) => ({
   service_name: s.service_name,
   images: s.images,
   base_price: s.base_price,
-  // Include relevance score if it exists (from search)
+  description: s.description,  // Added description
   ...(s._relevance && { relevance_score: s._relevance })
 });
 
@@ -17,7 +18,6 @@ exports.listServices = async ({ search, min_price, max_price, popular, page = 1 
   const where = { is_active: true };
   if (popular === 'true' || popular === true) where.is_popular = true;
 
-  // Price filtering
   if (min_price || max_price) {
     where.base_price = {};
     if (min_price) where.base_price.gte = parseFloat(min_price);
@@ -33,7 +33,6 @@ exports.listServices = async ({ search, min_price, max_price, popular, page = 1 
     orderBy = { popularity_rank: 'asc' };
   }
 
-  // Use full-text search if search term is provided
   if (search && search.trim()) {
     const [total, services] = await Promise.all([
       serviceRepo.countSearchResults(search, where),
@@ -59,7 +58,6 @@ exports.listServices = async ({ search, min_price, max_price, popular, page = 1 
     };
   }
 
-  // Regular listing without search
   const [total, services] = await Promise.all([
     serviceRepo.countServices(where),
     serviceRepo.findAll(where, orderBy, skip, take)
@@ -85,9 +83,13 @@ exports.getServiceDetail = async (serviceId) => {
   if (!service) throw Object.assign(new Error('Service not found'), { status: 404 });
 
   const { service_subcategories, ...rest } = service;
+  
+  // Return ALL details of the service
   return {
     ...rest,
+    category_id: service_subcategories?.category_id ?? null,
     category_name: service_subcategories?.service_categories?.category_name ?? null,
+    subcategory_id: service_subcategories?.subcategory_id ?? null,
     subcategory_name: service_subcategories?.subcategory_name ?? null
   };
 };
@@ -100,11 +102,14 @@ exports.getCategoryWithSubcategories = async (categoryId) => {
   const category = await categoryRepo.findById(categoryId);
   if (!category) throw Object.assign(new Error('Category not found'), { status: 404 });
 
-  const subcategories = await subcategoryRepo.findByCategory(categoryId);
+  // Return subcategories with both id and name
   return {
     category_id: category.category_id,
     category_name: category.category_name,
-    subcategories: subcategories.map((s) => s.subcategory_name)
+    subcategories: category.service_subcategories.map((s) => ({
+      subcategory_id: s.subcategory_id,
+      subcategory_name: s.subcategory_name
+    }))
   };
 };
 
@@ -158,7 +163,6 @@ exports.getServicesBySubcategory = async (subcategoryId, page = 1) => {
   };
 };
 
-// New method: Advanced search with filtering
 exports.searchServices = async (searchTerm, filters = {}, page = 1) => {
   if (!searchTerm || !searchTerm.trim()) {
     throw Object.assign(new Error('Search term is required'), { status: 400 });
@@ -166,7 +170,6 @@ exports.searchServices = async (searchTerm, filters = {}, page = 1) => {
 
   const where = { is_active: true };
   
-  // Apply filters
   if (filters.category_id) {
     where.service_subcategories = { 
       category_id: Number(filters.category_id) 
