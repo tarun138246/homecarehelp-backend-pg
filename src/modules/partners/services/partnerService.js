@@ -1,7 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const partnerRepo = require('../repositories/partnerRepository');
-const { encrypt } = require('../../../common/utils/crypto');
+const { encrypt, decrypt } = require('../../../common/utils/crypto');
 const { generateAgreementPDF } = require('../../../common/utils/agreementPdf');
 const { generateAgreementId, verifyAgreementId, generateInvoiceId } = require('../../../common/utils/agreementId');
 const cashfreePaymentService = require('../../payments/services/cashfreePaymentService');
@@ -10,10 +10,17 @@ const pratimaClient = require('../../../common/utils/pratimaClient');
 const partnerSessions = require('./partnerSessionStore');
 const env = require('../../../common/config/env');
 const { captureException, captureMessage } = require('../../../common/config/sentry');
+const { secureClear } = require('../../../common/utils/memoryCleanup');
 
 const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';
 const REQUIRED_FIELDS = ['name', 'email', 'phone_number', 'working_city', 'pincode', 'address', 'selected_services', 'id_proof'];
+const VALID_ID_TYPES = ['PAN', 'AADHAR', 'DL'];
+const ID_VALIDATION_PATTERNS = {
+  PAN: /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/,
+  AADHAR: /^\d{12}$/,
+  DL: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/
+};
 
 function tempDir() {
   return path.resolve(env.agreementTempDir);
@@ -43,12 +50,51 @@ function validateRegistration(data) {
   }
 }
 
+function validateIdProofs(idProofs) {
+  const validIdProofs = [];
+  
+  for (const item of idProofs) {
+    // Validate ID type
+    const idType = item.name?.toUpperCase();
+    if (!VALID_ID_TYPES.includes(idType)) {
+      throw Object.assign(
+        new Error(`Invalid ID type: ${item.name}. Allowed: PAN, AADHAR, DL`),
+        { status: 400 }
+      );
+    }
+    
+    // Validate ID number format
+    const pattern = ID_VALIDATION_PATTERNS[idType];
+    if (!pattern.test(item.number)) {
+      throw Object.assign(
+        new Error(`Invalid ${idType} number format: ${item.number}`),
+        { status: 400 }
+      );
+    }
+    
+    validIdProofs.push({
+      name: idType,
+      number: item.number
+    });
+  }
+  
+  return validIdProofs;
+}
+
 exports.register = async (partnerData) => {
   validateRegistration(partnerData);
 
-  const idProofs = partnerData.id_proof.map((item) => {
-    const { encryptedData, key, iv } = encrypt(item.number);
-    return { name: item.name, number: encryptedData, key, iv };
+  // Validate ID proofs
+  const validIdProofs = validateIdProofs(partnerData.id_proof);
+
+  const idProofs = validIdProofs.map((item) => {
+    const { encryptedData, iv, keyUsed } = encrypt(item.number);
+    return { 
+      name: item.name, 
+      number: encryptedData, 
+      iv,
+      keyUsed // Store 1 or 2 instead of full key
+    };
   });
 
   const address = typeof partnerData.address === 'string'
@@ -95,17 +141,68 @@ exports.eSign = async (partnerId, signatureBase64) => {
     partner = await partnerRepo.update(partnerId, { agreement_id: agreementId });
   }
 
-  const pdfBuffer = await generateAgreementPDF(partner, signatureBase64);
+  // Decrypt the ID number temporarily in RAM
+  let plainIdNumber = null;
+  let plainIdType = null;
+  
+  try {
+    if (partner.id_proof && partner.id_proof.length > 0) {
+      const primaryProof = partner.id_proof[0]; // Use first ID proof
+      plainIdType = primaryProof.name;
+      
+      // Decrypt the ID number using the stored key reference
+      plainIdNumber = decrypt(primaryProof.number, primaryProof.keyUsed, primaryProof.iv);
+      
+      console.log('[eSign] ID decrypted temporarily for agreement generation:', {
+        partnerId: partnerId.toString(),
+        idType: plainIdType
+      });
+    }
+  } catch (decryptError) {
+    console.error('[eSign] Failed to decrypt ID number:', decryptError);
+    // Continue without ID number if decryption fails
+    plainIdNumber = null;
+    plainIdType = null;
+  }
 
-  partnerSessions.set(partnerId, signatureBase64, pdfBuffer);
+  try {
+    // Pass plain ID to PDF generator - it exists only in RAM
+    const pdfBuffer = await generateAgreementPDF(partner, signatureBase64, plainIdType, plainIdNumber);
 
-  await fs.mkdir(tempDir(), { recursive: true });
-  await Promise.all([
-    fs.writeFile(tempPdfPath(partnerId), pdfBuffer),
-    fs.writeFile(tempSigPath(partnerId), signatureBase64, 'utf8')
-  ]);
+    // Store session with the encrypted partner data (not plain ID)
+    partnerSessions.set(partnerId, signatureBase64, pdfBuffer);
 
-  return { message: 'Signature received, agreement generated' };
+    await fs.mkdir(tempDir(), { recursive: true });
+    await Promise.all([
+      fs.writeFile(tempPdfPath(partnerId), pdfBuffer),
+      fs.writeFile(tempSigPath(partnerId), signatureBase64, 'utf8')
+    ]);
+
+    console.log('[eSign] Agreement generated successfully:', {
+      partnerId: partnerId.toString()
+    });
+
+    return { message: 'Signature received, agreement generated' };
+  } finally {
+    // Secure clear: overwrite with garbage before nullifying
+    if (plainIdNumber) {
+      plainIdNumber = secureClear(plainIdNumber);
+      plainIdNumber = null;
+    }
+    if (plainIdType) {
+      plainIdType = secureClear(plainIdType);
+      plainIdType = null;
+    }
+    
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
+    
+    console.log('[eSign] Plain ID securely cleared from RAM:', {
+      partnerId: partnerId.toString()
+    });
+  }
 };
 
 exports.verifyAgreement = async (agreementId) => {
