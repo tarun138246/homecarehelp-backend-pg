@@ -1,7 +1,5 @@
-// repositories/serviceRepository.js
 const prisma = require('../../../common/prismaClient');
 
-// Basic select fields for list view (lightweight)
 const BASIC_SELECT = { 
   service_id: true,
   service_name: true, 
@@ -10,9 +8,10 @@ const BASIC_SELECT = {
   description: true
 };
 
-/**
- * Find all services with optional filtering
- */
+// ============================================================
+// STANDARD QUERIES (using Prisma's native API)
+// ============================================================
+
 exports.findAll = (where = {}, orderBy, skip, take) => {
   return prisma.services.findMany({ 
     where, 
@@ -23,128 +22,32 @@ exports.findAll = (where = {}, orderBy, skip, take) => {
   });
 };
 
-/**
- * Count total services matching filters
- */
 exports.countServices = (where = {}) => {
   return prisma.services.count({ where });
 };
 
-/**
- * Full-text search using PostgreSQL tsvector
- * 
- * How it works:
- * 1. Takes user search like "Ro water purifier"
- * 2. Converts to tsquery format: "Ro:* & water:* & purifier:*"
- *    - The :* means prefix matching (matches "purifier", "purifiers", "purification")
- *    - The & means ALL terms must match
- * 3. Prisma's `search` filter on tsvector generates: WHERE search_vector @@ to_tsquery('Ro:* & water:* & purifier:*')
- * 4. PostgreSQL uses GIN index for lightning-fast lookup
- */
-exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip, take) => {
-  // Clean and format search term
-  // Split by whitespace, remove empty strings, add prefix matching
-  const formattedTerm = searchTerm
-    .trim()
-    .split(/\s+/)
-    .filter(term => term.length > 0)  // Remove empty strings from multiple spaces
-    .map(term => {
-      // Remove special characters that break tsquery
-      const cleanTerm = term.replace(/[^a-zA-Z0-9]/g, '');
-      return `${cleanTerm}:*`;  // Add prefix matching
-    })
-    .join(' & ');  // AND operator - all terms must match
-  
-  // If after cleaning there's nothing to search, return empty
-  if (!formattedTerm) {
-    return [];
-  }
-
-  // Build the where clause
-  // IMPORTANT: search_vector filter must be at the top level, not nested in AND
-  const where = {
-    ...additionalWhere,  // Spread existing filters (is_active, base_price, etc.)
-    search_vector: {
-      search: formattedTerm  // Prisma translates this to @@ to_tsquery()
-    }
-  };
-
-  return prisma.services.findMany({
-    where,
-    select: BASIC_SELECT,
-    // Default order: popular services first, then by name
-    orderBy: orderBy || [
-      { is_popular: 'desc' },
-      { service_name: 'asc' }
-    ],
-    skip,
-    take
-  });
-};
-
-/**
- * Count search results (for pagination)
- */
-exports.countSearchResults = async (searchTerm, additionalWhere = {}) => {
-  const formattedTerm = searchTerm
-    .trim()
-    .split(/\s+/)
-    .filter(term => term.length > 0)
-    .map(term => {
-      const cleanTerm = term.replace(/[^a-zA-Z0-9]/g, '');
-      return `${cleanTerm}:*`;
-    })
-    .join(' & ');
-  
-  if (!formattedTerm) {
-    return 0;
-  }
-
-  return prisma.services.count({
-    where: {
-      ...additionalWhere,
-      search_vector: {
-        search: formattedTerm
-      }
-    }
-  });
-};
-
-/**
- * Find a single service by ID
- */
 exports.findById = (service_id) => {
-  return prisma.services.findUnique({ 
-    where: { service_id } 
-  });
+  return prisma.services.findUnique({ where: { service_id } });
 };
 
-/**
- * Find service with category and subcategory info (for detail page)
- */
 exports.findByIdWithCategory = (service_id) => {
   return prisma.services.findUnique({
     where: { service_id },
     include: {
       service_subcategories: {
         include: {
-          service_categories: true  // Get parent category name
+          service_categories: true
         }
       }
     }
   });
 };
 
-/**
- * Find services by category ID
- */
 exports.findByCategoryId = (categoryId, skip, take) => {
   return prisma.services.findMany({
     where: {
       is_active: true,
-      service_subcategories: { 
-        category_id: Number(categoryId) 
-      }
+      service_subcategories: { category_id: Number(categoryId) }
     },
     select: BASIC_SELECT,
     skip,
@@ -152,43 +55,106 @@ exports.findByCategoryId = (categoryId, skip, take) => {
   });
 };
 
-/**
- * Count services by category
- */
 exports.countByCategoryId = (categoryId) => {
   return prisma.services.count({
     where: {
       is_active: true,
-      service_subcategories: { 
-        category_id: Number(categoryId) 
-      }
+      service_subcategories: { category_id: Number(categoryId) }
     }
   });
 };
 
-/**
- * Find services by subcategory ID
- */
 exports.findBySubcategoryId = (subcategoryId, skip, take) => {
   return prisma.services.findMany({
-    where: { 
-      is_active: true, 
-      subcategory_id: Number(subcategoryId) 
-    },
+    where: { is_active: true, subcategory_id: Number(subcategoryId) },
     select: BASIC_SELECT,
     skip,
     take
   });
 };
 
-/**
- * Count services by subcategory
- */
 exports.countBySubcategoryId = (subcategoryId) => {
   return prisma.services.count({
-    where: { 
-      is_active: true, 
-      subcategory_id: Number(subcategoryId) 
-    }
+    where: { is_active: true, subcategory_id: Number(subcategoryId) }
   });
+};
+
+// ============================================================
+// SEARCH QUERIES (using $queryRawUnsafe - tsvector is Unsupported)
+// Prisma docs: https://www.prisma.io/docs/orm/prisma-schema/data-model/unsupported-database-features
+// "Fields of Unsupported type can only be queried using $queryRaw or $queryRawUnsafe"
+// ============================================================
+
+exports.searchServices = async (searchTerm, additionalWhere = {}, orderBy, skip, take) => {
+  const cleanTerm = searchTerm.trim().replace(/[^a-zA-Z0-9\s]/g, '');
+  if (!cleanTerm) return [];
+
+  // Build tsquery string: "Ro water purifier" -> "Ro:* & water:* & purifier:*"
+  const tsquery = cleanTerm
+    .split(/\s+/)
+    .filter(t => t)
+    .map(t => `${t}:*`)
+    .join(' & ');
+
+  let whereClause = "WHERE s.is_active = true AND s.search_vector @@ to_tsquery('english', '" + tsquery + "')";
+  
+  if (additionalWhere.is_popular !== undefined) {
+    whereClause += " AND s.is_popular = " + additionalWhere.is_popular;
+  }
+  
+  if (additionalWhere.base_price?.gte !== undefined) {
+    whereClause += " AND s.base_price >= " + additionalWhere.base_price.gte;
+  }
+  if (additionalWhere.base_price?.lte !== undefined) {
+    whereClause += " AND s.base_price <= " + additionalWhere.base_price.lte;
+  }
+  
+  if (additionalWhere.service_subcategories?.category_id !== undefined) {
+    whereClause += " AND s.subcategory_id IN (SELECT subcategory_id FROM service_subcategories WHERE category_id = " + additionalWhere.service_subcategories.category_id + ")";
+  }
+  
+  if (additionalWhere.subcategory_id !== undefined) {
+    whereClause += " AND s.subcategory_id = " + additionalWhere.subcategory_id;
+  }
+
+  let orderClause = "ORDER BY s.is_popular DESC, s.service_name ASC";
+  if (orderBy?.popularity_rank) {
+    orderClause = "ORDER BY s.popularity_rank " + orderBy.popularity_rank;
+  }
+
+  const query = `
+    SELECT s.service_id, s.service_name, s.images, s.base_price, s.description
+    FROM services s
+    ${whereClause}
+    ${orderClause}
+    LIMIT ${take} OFFSET ${skip}
+  `;
+
+  return prisma.$queryRawUnsafe(query);
+};
+
+exports.countSearchResults = async (searchTerm, additionalWhere = {}) => {
+  const cleanTerm = searchTerm.trim().replace(/[^a-zA-Z0-9\s]/g, '');
+  if (!cleanTerm) return 0;
+
+  const tsquery = cleanTerm
+    .split(/\s+/)
+    .filter(t => t)
+    .map(t => `${t}:*`)
+    .join(' & ');
+
+  let whereClause = "WHERE is_active = true AND search_vector @@ to_tsquery('english', '" + tsquery + "')";
+  
+  if (additionalWhere.service_subcategories?.category_id !== undefined) {
+    whereClause += " AND subcategory_id IN (SELECT subcategory_id FROM service_subcategories WHERE category_id = " + additionalWhere.service_subcategories.category_id + ")";
+  }
+  
+  if (additionalWhere.subcategory_id !== undefined) {
+    whereClause += " AND subcategory_id = " + additionalWhere.subcategory_id;
+  }
+
+  const query = `SELECT COUNT(*) as count FROM services ${whereClause}`;
+  
+  const result = await prisma.$queryRawUnsafe(query);
+  return Number(result[0].count);
 };
