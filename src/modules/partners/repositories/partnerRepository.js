@@ -23,6 +23,35 @@ exports.findByOrderId = (orderId) => {
   });
 };
 
+/**
+ * Find partner by email OR phone number (for update logic)
+ * Returns the first matching partner if either email or phone matches
+ */
+exports.findByEmailOrPhone = (email, phoneNumber) => {
+  return prisma.partners.findFirst({
+    where: {
+      OR: [
+        { email: email },
+        { phone_number: phoneNumber }
+      ]
+    }
+  });
+};
+
+/**
+ * Find partner by email only
+ */
+exports.findByEmail = (email) => {
+  return prisma.partners.findUnique({ where: { email } });
+};
+
+/**
+ * Find partner by phone number only
+ */
+exports.findByPhoneNumber = (phoneNumber) => {
+  return prisma.partners.findUnique({ where: { phone_number: phoneNumber } });
+};
+
 exports.update = (id, data) => {
   return prisma.partners.update({ where: { id: BigInt(id) }, data });
 };

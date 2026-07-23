@@ -150,6 +150,13 @@ function validateIdProofs(idProofs) {
   return validIdProofs;
 }
 
+/**
+ * Find existing partner by email or phone number
+ */
+async function findExistingPartner(email, phoneNumber) {
+  return await partnerRepo.findByEmailOrPhone(email, phoneNumber);
+}
+
 exports.register = async (partnerData) => {
   validateRegistration(partnerData);
 
@@ -184,28 +191,79 @@ exports.register = async (partnerData) => {
     ? partnerData.selected_services
     : JSON.stringify(partnerData.selected_services);
 
-  const partner = await partnerRepo.create({
-    name: partnerData.name,
-    email: partnerData.email,
-    phone_number: partnerData.phone_number,
-    working_city: partnerData.working_city,
-    pincode: partnerData.pincode,
-    address,
-    selected_services,
-    id_proof: idProofs,
-    agreement_url: '',
-    payment_details: {},
-    data_collection_consent: { accepted: false, timestamp: null },
-    status: 'created'
-  });
+  // Check if partner already exists by email or phone number
+  const existingPartner = await findExistingPartner(partnerData.email, partnerData.phone_number);
+  
+  let partner;
+  let isUpdate = false;
+  
+  if (existingPartner) {
+    // UPDATE EXISTING PARTNER WITH NEW DATA
+    console.log('[Partner] Existing partner found, updating with new details:', {
+      partnerId: existingPartner.id.toString(),
+      oldEmail: existingPartner.email,
+      oldPhone: existingPartner.phone_number,
+      newEmail: partnerData.email,
+      newPhone: partnerData.phone_number
+    });
 
-  console.log('[Partner] Registered:', {
+    // Update the existing partner with all new data
+    partner = await partnerRepo.update(existingPartner.id.toString(), {
+      name: partnerData.name,
+      email: partnerData.email,
+      phone_number: partnerData.phone_number,
+      working_city: partnerData.working_city,
+      pincode: partnerData.pincode,
+      address,
+      selected_services,
+      id_proof: idProofs,
+      // Reset agreement and payment details for fresh registration
+      agreement_url: '',
+      agreement_id: null,
+      invoice_url: null,
+      invoice_id: null,
+      payment_details: {},
+      data_collection_consent: { accepted: false, timestamp: null },
+      status: 'created'
+    });
+
+    isUpdate = true;
+    
+    console.log('[Partner] Updated successfully:', {
+      partnerId: partner.id.toString(),
+      email: partner.email,
+      phone: partner.phone_number,
+      isUpdate
+    });
+  } else {
+    // CREATE NEW PARTNER
+    partner = await partnerRepo.create({
+      name: partnerData.name,
+      email: partnerData.email,
+      phone_number: partnerData.phone_number,
+      working_city: partnerData.working_city,
+      pincode: partnerData.pincode,
+      address,
+      selected_services,
+      id_proof: idProofs,
+      agreement_url: '',
+      payment_details: {},
+      data_collection_consent: { accepted: false, timestamp: null },
+      status: 'created'
+    });
+
+    console.log('[Partner] Registered new partner:', {
+      partnerId: partner.id.toString(),
+      email: partner.email,
+      phone: partner.phone_number
+    });
+  }
+
+  return { 
     partnerId: partner.id.toString(),
-    email: partner.email,
-    phone: partner.phone_number
-  });
-
-  return { partnerId: partner.id.toString() };
+    isUpdate,
+    message: isUpdate ? 'Partner record updated successfully' : 'Partner registered successfully'
+  };
 };
 
 exports.eSign = async (partnerId, signatureBase64) => {

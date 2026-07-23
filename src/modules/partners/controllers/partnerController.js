@@ -4,8 +4,14 @@ const logger = require('../../../common/utils/logger');
 
 exports.register = async (req, res, next) => {
   try {
-    const partner = await partnerService.register(req.body);
-    res.status(201).json(partner);
+    const result = await partnerService.register(req.body);
+    
+    // Return appropriate status code based on whether it's an update or new creation
+    const statusCode = result.isUpdate ? 200 : 201;
+    res.status(statusCode).json({
+      success: true,
+      ...result
+    });
   } catch (err) {
     next(err);
   }
