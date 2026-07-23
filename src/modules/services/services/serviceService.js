@@ -10,8 +10,7 @@ const toBasicShape = (s) => ({
   service_name: s.service_name,
   images: s.images,
   base_price: s.base_price,
-  description: s.description,  // Added description
-  ...(s._relevance && { relevance_score: s._relevance })
+  description: s.description
 });
 
 exports.listServices = async ({ search, min_price, max_price, popular, page = 1 }) => {
