@@ -1,4 +1,5 @@
 const partnerService = require('../services/partnerService');
+const { handleCashfreeWebhook } = require('../../../common/utils/webhookConfirmation');
 
 exports.register = async (req, res, next) => {
   try {
@@ -49,6 +50,18 @@ exports.verifyAgreement = async (req, res, next) => {
     const { agreementId } = req.params;
     const result = await partnerService.verifyAgreement(agreementId);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Fallback webhook for partner - uses the same unified handler
+exports.webhook = async (req, res, next) => {
+  try {
+    await handleCashfreeWebhook(req, res, async (webhookData) => {
+      // Always route to partner service for this fallback endpoint
+      return await partnerService.processWebhook(webhookData);
+    });
   } catch (err) {
     next(err);
   }
