@@ -132,6 +132,7 @@ exports.createBooking = async (userId, bookingData) => {
     user_id: BigInt(userId),
     services_id: validatedServices,  // Store just the service IDs
     total_amount: totalAmount,
+    service_price: totalAmount,
     address: bookingData.address,
     scheduled_date: new Date(bookingData.scheduled_date),
     time_slot: bookingData.time_slot,
