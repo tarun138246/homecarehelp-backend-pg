@@ -1,10 +1,24 @@
 const nodeEnv = process.env.NODE_ENV || 'development';
 
-const required = ['DATABASE_URL', 'JWT_SECRET', 'CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET'];
+// Determine which Cashfree environment to use
+const cashfreeEnv = (process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
+if (!['SANDBOX', 'PRODUCTION'].includes(cashfreeEnv)) {
+  throw new Error(`[env] CASHFREE_ENV must be "SANDBOX" or "PRODUCTION", got "${cashfreeEnv}"`);
+}
+
+// Select the appropriate Cashfree keys based on environment
+const cashfreeClientId = cashfreeEnv === 'PRODUCTION'
+  ? process.env.PRODUCTION_CASHFREE_CLIENT_ID
+  : process.env.SANDBOX_CASHFREE_CLIENT_ID;
+
+const cashfreeClientSecret = cashfreeEnv === 'PRODUCTION'
+  ? process.env.PRODUCTION_CASHFREE_CLIENT_SECRET
+  : process.env.SANDBOX_CASHFREE_CLIENT_SECRET;
+
+// Validate required environment variables
+const required = ['DATABASE_URL', 'JWT_SECRET'];
 const placeholders = {
-  JWT_SECRET: 'your_jwt_secret',
-  CASHFREE_CLIENT_ID: 'your_client_id',
-  CASHFREE_CLIENT_SECRET: 'your_client_secret'
+  JWT_SECRET: 'your_jwt_secret'
 };
 
 const missing = required.filter((key) => !process.env[key]);
@@ -24,10 +38,24 @@ if (missing.length) {
   console.warn(`[env] Missing recommended env vars: ${missing.join(', ')}`);
 }
 
-const cashfreeEnv = (process.env.CASHFREE_ENV || 'SANDBOX').toUpperCase();
-if (!['SANDBOX', 'PRODUCTION'].includes(cashfreeEnv)) {
-  throw new Error(`[env] CASHFREE_ENV must be "SANDBOX" or "PRODUCTION", got "${cashfreeEnv}"`);
+// Validate Cashfree keys are set
+if (!cashfreeClientId || cashfreeClientId === 'PRODUCTION_CLIENT_ID_HERE') {
+  if (cashfreeEnv === 'PRODUCTION') {
+    throw new Error('[env] PRODUCTION_CASHFREE_CLIENT_ID is not set or still has placeholder value');
+  }
+  console.warn('[env] SANDBOX_CASHFREE_CLIENT_ID is not set');
 }
+
+if (!cashfreeClientSecret || cashfreeClientSecret === 'PRODUCTION_CLIENT_SECRET_HERE') {
+  if (cashfreeEnv === 'PRODUCTION') {
+    throw new Error('[env] PRODUCTION_CASHFREE_CLIENT_SECRET is not set or still has placeholder value');
+  }
+  console.warn('[env] SANDBOX_CASHFREE_CLIENT_SECRET is not set');
+}
+
+// Log which environment is active
+console.log(`[env] Cashfree Environment: ${cashfreeEnv}`);
+console.log(`[env] Using Cashfree Client ID: ${cashfreeClientId ? cashfreeClientId.substring(0, 10) + '...' : 'NOT SET'}`);
 
 module.exports = {
   port: process.env.PORT || 3000,
@@ -36,8 +64,9 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
 
-  cashfreeClientId: process.env.CASHFREE_CLIENT_ID,
-  cashfreeClientSecret: process.env.CASHFREE_CLIENT_SECRET,
+  // Cashfree configuration (auto-selected based on CASHFREE_ENV)
+  cashfreeClientId,
+  cashfreeClientSecret,
   cashfreeEnv,
   cashfreeApiVersion: process.env.CASHFREE_API_VERSION || '2025-01-01',
   cashfreeReturnUrl: process.env.CASHFREE_RETURN_URL || 'https://homecarehelp.in/payment/return',

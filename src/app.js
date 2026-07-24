@@ -82,17 +82,6 @@ app.use('/api/confirm-order-wb', express.raw({ type: 'application/json', limit: 
   }
 });
 
-// FALLBACK: Old partner webhook URL (remove after Cashfree is updated)
-app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
-  req.rawBody = req.body.toString('utf8');
-  try {
-    req.body = JSON.parse(req.rawBody);
-    next();
-  } catch (err) {
-    res.status(400).json({ error: 'Invalid JSON in webhook payload' });
-  }
-});
-
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 

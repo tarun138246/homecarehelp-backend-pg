@@ -8,6 +8,4 @@ router.get('/confirm-order', partnerController.confirmOrder);
 router.get('/verify-agreement/:agreementId', partnerController.verifyAgreement);
 
 
-router.post('/confirm-order-wb', partnerController.webhook);
-
 module.exports = router;
