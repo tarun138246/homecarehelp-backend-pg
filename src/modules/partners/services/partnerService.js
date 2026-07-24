@@ -16,6 +16,9 @@ const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';
 const REQUIRED_FIELDS = ['name', 'email', 'phone_number', 'working_city', 'pincode', 'address', 'selected_services', 'id_proof'];
 
+// Statuses that allow re-registration (update existing record)
+const ALLOWED_UPDATE_STATUSES = ['created', 'payment_pending', 'payment_initiated', 'payment_failed', 'payment_dropped', 'payment_received_pending_documents'];
+
 // Valid ID types (standardized)
 const VALID_ID_TYPES = ['PAN', 'AADHAR', 'DL'];
 
@@ -198,13 +201,45 @@ exports.register = async (partnerData) => {
   let isUpdate = false;
   
   if (existingPartner) {
-    // UPDATE EXISTING PARTNER WITH NEW DATA
+    // CHECK: If partner is already confirmed, reject the registration
+    if (existingPartner.status === 'confirmed') {
+      console.log('[Partner] Registration rejected - partner already confirmed:', {
+        partnerId: existingPartner.id.toString(),
+        email: existingPartner.email,
+        phone: existingPartner.phone_number,
+        status: existingPartner.status
+      });
+      
+      throw Object.assign(
+        new Error('Partner already registered and confirmed. Cannot update a confirmed partner.'),
+        { status: 409 }
+      );
+    }
+    
+    // CHECK: If partner status is not in allowed update statuses, reject
+    if (!ALLOWED_UPDATE_STATUSES.includes(existingPartner.status)) {
+      console.log('[Partner] Registration rejected - partner status not allowed for update:', {
+        partnerId: existingPartner.id.toString(),
+        email: existingPartner.email,
+        phone: existingPartner.phone_number,
+        status: existingPartner.status,
+        allowedStatuses: ALLOWED_UPDATE_STATUSES
+      });
+      
+      throw Object.assign(
+        new Error(`Partner is in '${existingPartner.status}' status. Registration not allowed.`),
+        { status: 409 }
+      );
+    }
+
+    // UPDATE EXISTING PARTNER WITH NEW DATA (only if status allows)
     console.log('[Partner] Existing partner found, updating with new details:', {
       partnerId: existingPartner.id.toString(),
       oldEmail: existingPartner.email,
       oldPhone: existingPartner.phone_number,
       newEmail: partnerData.email,
-      newPhone: partnerData.phone_number
+      newPhone: partnerData.phone_number,
+      currentStatus: existingPartner.status
     });
 
     // Update the existing partner with all new data
@@ -585,9 +620,6 @@ async function handlePaymentSuccess(partner, data) {
       payment_details: paymentDetails
     });
 
-    // TODO: Add alerting system (email, Slack notification)
-    // TODO: Add to retry queue for document generation
-    
     console.error('[Payment Success] ALERT: Payment received but agreement PDF missing', {
       partnerId,
       email: partner.email,
