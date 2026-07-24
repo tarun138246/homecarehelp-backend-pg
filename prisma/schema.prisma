@@ -48,7 +48,6 @@ model service_subcategories {
   @@unique([category_id, subcategory_name], map: "unique_subcategory_per_category")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model services {
   service_id            String                   @id @db.VarChar(100)
   subcategory_id        Int
@@ -73,7 +72,6 @@ model services {
   price_multiplier      Decimal?                 @db.Decimal(10, 2)
   visiting_charge       Decimal?                 @db.Decimal(10, 2)
   search_vector         Unsupported("tsvector")?
-  bookings              bookings[]
   service_subcategories service_subcategories    @relation(fields: [subcategory_id], references: [subcategory_id], onUpdate: NoAction, map: "fk_service_subcategory")
 
   @@index([search_vector], map: "services_search_idx", type: Gin)
@@ -91,20 +89,18 @@ model users {
   bookings     bookings[]
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model bookings {
-  booking_id      BigInt    @id @default(autoincrement())
+  booking_id      BigInt   @id @default(autoincrement())
   user_id         BigInt
-  service_id      String    @db.VarChar(100)
-  service_price   Decimal   @db.Decimal(10, 2)
+  services_id     Json     @default("[]")
+  total_amount    Decimal  @db.Decimal(10, 2)
   address         Json
-  scheduled_date  DateTime  @db.Date
-  time_slot       String    @db.VarChar(50)
-  payment_option  String    @db.VarChar(20)
-  payment_status  String    @db.VarChar(30)
-  payment_details Json?
-  created_at      DateTime? @default(now()) @db.Timestamptz(6)
-  status          String    @db.VarChar
-  services        services  @relation(fields: [service_id], references: [service_id], onUpdate: NoAction, map: "fk_booking_service")
-  users           users     @relation(fields: [user_id], references: [user_id], onUpdate: NoAction, map: "fk_booking_user")
+  scheduled_date  DateTime @db.Date
+  time_slot       String   @db.VarChar(50)
+  payment_status  String   @db.VarChar(30)
+  payment_details Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  status          String   @db.VarChar
+  users           users    @relation(fields: [user_id], references: [user_id], onUpdate: NoAction, map: "fk_booking_user")
 }

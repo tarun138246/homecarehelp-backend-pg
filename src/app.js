@@ -17,9 +17,9 @@ const authRoutes = require('./modules/auth/routes/authRoutes');
 const userRoutes = require('./modules/users/routes/userRoutes');
 const serviceRoutes = require('./modules/services/routes/serviceRoutes');
 const bookingRoutes = require('./modules/bookings/routes/bookingRoutes');
-const bookingPaymentRoutes = require('./modules/bookings/routes/paymentRoutes');
 const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
+const webhookRoutes = require('./modules/webhooks/routes/webhookRoutes');
 
 
 const app = express();
@@ -70,8 +70,8 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
-// Webhook raw body
-app.use('/api/partner/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
+
+app.use('/api/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
   req.rawBody = req.body.toString('utf8');
   try {
     req.body = JSON.parse(req.rawBody);
@@ -90,9 +90,9 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/bookings', bookingRoutes);
-app.use('/api', bookingPaymentRoutes);
 app.use('/api/partner', partnerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', webhookRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
