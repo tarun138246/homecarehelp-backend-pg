@@ -27,7 +27,7 @@ const COMPANY_DETAILS = {
   pincode: '284003',
   phone: '+91 8354070809',
   email: 'support@homecarehelp.com',
-  gstin: '09AABCG1234R1Z5', // Replace with actual GSTIN
+  gstin: '09ATDPG1389A1ZZ', 
   website: 'www.homecarehelp.com',
   stateCode: '09'
 };
