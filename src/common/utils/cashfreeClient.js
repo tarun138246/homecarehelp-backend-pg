@@ -29,20 +29,40 @@ async function createOrder({ order_id, order_amount, order_currency = 'INR', cus
 
   const response = await axios.post(`${BASE_URL}/orders`, body, { headers: headers() });
   
-  //Serialize and deserialize to strip any prototype pollution
-  const cleanData = JSON.parse(JSON.stringify(response.data));
+
+  const rawText = JSON.stringify(response.data);
+  const parsed = JSON.parse(rawText);
   
-  // Return only needed fields as primitive strings
+  // Extract session ID from clean parsed object
+  const sessionId = parsed.payment_session_id;
+  
+  // Check if corrupted and fix
+  let cleanSessionId = sessionId;
+  if (typeof cleanSessionId === 'string' && cleanSessionId.includes('paymentpayment')) {
+    // Split on 'paymentpayment' and take the first part
+    cleanSessionId = cleanSessionId.split('paymentpayment')[0];
+  }
+  
+  // Ensure it starts with 'session_'
+  if (!cleanSessionId.startsWith('session_')) {
+    const match = cleanSessionId.match(/(session_[a-zA-Z0-9_-]+)/);
+    if (match) {
+      cleanSessionId = match[1];
+    }
+  }
+  
+  console.log('[CashfreeClient] Cleaned session ID:', cleanSessionId);
+  
   return {
-    order_id: String(cleanData.order_id || ''),
-    payment_session_id: String(cleanData.payment_session_id || '')
+    order_id: String(parsed.order_id || ''),
+    payment_session_id: cleanSessionId
   };
 }
 
 async function fetchOrder(orderId) {
   const response = await axios.get(`${BASE_URL}/orders/${orderId}`, { headers: headers() });
-  const cleanData = JSON.parse(JSON.stringify(response.data));
-  return cleanData;
+  const rawText = JSON.stringify(response.data);
+  return JSON.parse(rawText);
 }
 
 module.exports = { createOrder, fetchOrder };
