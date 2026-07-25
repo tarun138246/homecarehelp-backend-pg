@@ -1,7 +1,7 @@
 const bookingRepo = require('../repositories/bookingRepository');
 const serviceRepo = require('../../services/repositories/serviceRepository');
 const userRepo = require('../../users/repositories/userRepository');
-const cashfreeClient = require('../../../common/utils/cashfreeClient');
+const cashfreePaymentService = require('../../payments/services/cashfreePaymentService');
 
 const CANCELLATION_WINDOW_HOURS = 24;
 const ORDER_PREFIX = 'bkg';
@@ -22,23 +22,17 @@ function validateAddress(address) {
   }
 }
 
-/**
- * Validate and normalize services input
- * Accepts both single service_id string or array of service_ids
- */
 function validateAndNormalizeServices(services) {
   if (!services) {
     throw Object.assign(new Error('At least one service is required'), { status: 400 });
   }
   
-  // If single service_id string, convert to array
   const serviceArray = Array.isArray(services) ? services : [services];
   
   if (serviceArray.length === 0) {
     throw Object.assign(new Error('At least one service is required'), { status: 400 });
   }
   
-  // Remove duplicates
   return [...new Set(serviceArray)];
 }
 
@@ -75,9 +69,6 @@ function getPaymentMethod(paymentMethod) {
   return null;
 }
 
-/**
- * Fetch service details for given service IDs
- */
 async function getServicesDetails(serviceIds) {
   if (!serviceIds || !Array.isArray(serviceIds) || serviceIds.length === 0) {
     return [];
@@ -103,7 +94,6 @@ async function getServicesDetails(serviceIds) {
 exports.createBooking = async (userId, bookingData) => {
   const validatedServices = validateBookingInput(bookingData);
 
-  // Fetch all services from DB and calculate total amount
   let totalAmount = 0;
   const serviceDetails = [];
 
@@ -130,7 +120,7 @@ exports.createBooking = async (userId, bookingData) => {
 
   const booking = await bookingRepo.create({
     user_id: BigInt(userId),
-    services_id: validatedServices,  // Store just the service IDs
+    services_id: validatedServices,
     total_amount: totalAmount,
     address: bookingData.address,
     scheduled_date: new Date(bookingData.scheduled_date),
@@ -160,7 +150,6 @@ exports.createBooking = async (userId, bookingData) => {
 exports.getUserBookings = async (userId) => {
   const bookings = await bookingRepo.findAllByUser(userId);
   
-  // Enrich each booking with service details
   const enrichedBookings = [];
   for (const b of bookings) {
     const services = await getServicesDetails(b.services_id || []);
@@ -185,7 +174,6 @@ exports.getBookingDetail = async (userId, bookingId) => {
     throw Object.assign(new Error('Booking not found'), { status: 404 });
   }
 
-  // Fetch service details
   const services = await getServicesDetails(booking.services_id || []);
 
   return {
@@ -237,7 +225,6 @@ exports.createOrder = async (userId, bookingId) => {
     throw Object.assign(new Error('This booking is set for pay at service, not online payment'), { status: 400 });
   }
 
-  // Re-validate all services are still active and prices haven't changed
   const serviceIds = booking.services_id || [];
   let currentTotal = 0;
   
@@ -249,7 +236,6 @@ exports.createOrder = async (userId, bookingId) => {
     currentTotal += parseFloat(service.base_price);
   }
 
-  // Check if price has changed
   if (parseFloat(booking.total_amount) !== currentTotal) {
     throw Object.assign(new Error('Service prices have changed. Please create a new booking.'), { status: 400 });
   }
@@ -257,27 +243,14 @@ exports.createOrder = async (userId, bookingId) => {
   const user = await userRepo.findById(userId);
   if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
 
-  const istTimestamp = Date.now() + (5.5 * 60 * 60 * 1000);
-  const order_id = `${ORDER_PREFIX}_${bookingId}_${istTimestamp}`;
-
-  console.log('[Create Order] Generating Cashfree order:', {
-    bookingId: bookingId.toString(),
-    orderId: order_id,
+  // ✅ Use cashfreePaymentService (same as partner flow)
+  const order = await cashfreePaymentService.createOrder({
+    prefix: ORDER_PREFIX,
+    entityId: bookingId.toString(),
     amount: booking.total_amount.toString(),
+    customerName: user.name,
     customerEmail: user.email,
-    timestamp: getISTTimestamp()
-  });
-
-  const order = await cashfreeClient.createOrder({
-    order_id,
-    order_amount: booking.total_amount.toString(),
-    order_currency: 'INR',
-    customer_details: {
-      customer_id: userId.toString(),
-      customer_name: user.name,
-      customer_email: user.email,
-      customer_phone: user.phone_number
-    }
+    customerPhone: user.phone_number
   });
 
   console.log('[Create Order] Cashfree order created:', {
@@ -331,7 +304,6 @@ exports.confirmOrder = async (orderId) => {
     currentStatus: booking.status
   });
 
-  // Pay at service - instantly confirm
   if (booking.payment_status === 'PAY_AT_SERVICE') {
     await bookingRepo.update(bookingId, { status: 'booked' });
     return { 
@@ -341,7 +313,6 @@ exports.confirmOrder = async (orderId) => {
     };
   }
 
-  // Online payment - check payment_details status
   if (booking.payment_status === 'PAY_ONLINE') {
     const paymentDetails = booking.payment_details || {};
 

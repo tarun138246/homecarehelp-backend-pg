@@ -33,7 +33,7 @@ const COMPANY_DETAILS = {
 };
 
 const JOINING_FEE = '2950';
-const COMPANY_STATE = 'Uttar Pradesh'; // Your company's state
+const COMPANY_STATE = 'Uttar Pradesh'; 
 
 async function generateInvoicePDF(partner, invoiceId) {
   const now = new Date();
