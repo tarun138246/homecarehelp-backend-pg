@@ -41,7 +41,7 @@ function encrypt(text) {
 }
 
 function decrypt(encryptedData, keyUsed, ivHex) {
-  const keys = [env.encryption_key_1, env.encryption_key_2].filter(Boolean);
+  const keys = [env.ENCRYPTION_KEY_1, env.ENCRYPTION_KEY_2].filter(Boolean);
   
   if (keyUsed < 1 || keyUsed > 2) {
     throw new Error(`Invalid key index: ${keyUsed}. Must be 1 or 2`);
