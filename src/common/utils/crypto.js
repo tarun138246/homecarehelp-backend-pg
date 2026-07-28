@@ -6,7 +6,7 @@ const IV_LENGTH = 16;
 
 // Get encryption keys from environment
 function getEncryptionKey() {
-  const keys = [env.encryption_key_1, env.encryption_key_2].filter(Boolean);
+  const keys = [env.ENCRYPTION_KEY_1, env.ENCRYPTION_KEY_2].filter(Boolean);
   
   if (keys.length === 0) {
     throw new Error('No encryption keys configured in environment (encryption_key_1, encryption_key_2)');
