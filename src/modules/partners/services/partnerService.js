@@ -786,6 +786,12 @@ exports.resetStalePayments = async () => {
   return { success: true, message: `Reset ${resetCount} stale payment attempts` };
 };
 
+exports.deleteStalePartners = async () => {
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes ago
+  const result = await partnerRepo.deleteStaleByStatus(cutoff);
+  return result.count;
+};
+
 async function loadAgreementPdf(partnerId) {
   const session = partnerSessions.get(partnerId);
   if (session?.pdfBuffer) return session.pdfBuffer;

@@ -11,6 +11,7 @@ const env = require('./common/config/env');
 
 const cleanupJob = require('./common/jobs/cleanupJob');
 const paymentResetJob = require('./common/jobs/resetStalePayments');
+const partnerStaleCleanup = require('./common/jobs/partnerStaleRecordCleanup');
 
 const healthRoutes = require('./common/routes/healthRoutes');
 const authRoutes = require('./modules/auth/routes/authRoutes');
@@ -105,6 +106,7 @@ app.use(errorHandler);
 
 cleanupJob.start();
 paymentResetJob.start();
+partnerStaleCleanup.start();
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Shutting down...');

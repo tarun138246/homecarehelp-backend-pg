@@ -79,3 +79,12 @@ exports.resetPaymentDetails = (id) => {
     }
   });
 };
+
+exports.deleteStaleByStatus = (cutoffTime) => {
+  return prisma.partners.deleteMany({
+    where: {
+      status: { in: ['created', 'payment_pending'] },
+      updated_at: { lt: cutoffTime }
+    }
+  });
+};
