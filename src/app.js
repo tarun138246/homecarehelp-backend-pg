@@ -1,3 +1,4 @@
+require('dotenv').config();
 const sentryConfig = require('./common/config/sentry');
 const sentryEnabled = sentryConfig.initSentry();
 const express = require('express');
