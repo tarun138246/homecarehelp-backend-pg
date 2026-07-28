@@ -1,3 +1,5 @@
+// src/modules/partners/services/partnerService.js
+
 const fs = require('fs').promises;
 const path = require('path');
 const partnerRepo = require('../repositories/partnerRepository');
@@ -11,6 +13,7 @@ const partnerSessions = require('./partnerSessionStore');
 const env = require('../../../common/config/env');
 const { captureException, captureMessage } = require('../../../common/config/sentry');
 const { secureClear } = require('../../../common/utils/memoryCleanup');
+const emailService = require('../../../modules/email/emailService');   // <-- ADDED
 
 const JOINING_FEE = '2950';
 const ORDER_PREFIX = 'ptn';
@@ -667,6 +670,21 @@ async function handlePaymentSuccess(partner, data) {
     paymentId: payment.cf_payment_id
   });
 
+  // =========================================================
+  // SEND CONFIRMATION EMAILS (partner + internal notification)
+  // =========================================================
+  try {
+    await sendConfirmationEmails(partner, pdfBuffer, invoiceBuffer, invoiceId, agreementUrl, invoiceUrl);
+  } catch (emailErr) {
+    // Log but do not fail the whole operation
+    console.error('[Payment Success] Failed to send confirmation emails:', emailErr);
+    captureException(emailErr, {
+      partnerId,
+      context: 'sendConfirmationEmails',
+      email: partner.email
+    });
+  }
+
   await clearAgreementTemp(partnerId);
 
   return { 
@@ -676,6 +694,94 @@ async function handlePaymentSuccess(partner, data) {
     invoice_url: invoiceUrl,
     invoice_id: invoiceId
   };
+}
+
+/**
+ * Sends two emails after successful payment:
+ * 1. A welcome email to the partner with the agreement and invoice as attachments.
+ * 2. An internal notification to the company admin with the same attachments.
+ */
+async function sendConfirmationEmails(partner, agreementBuffer, invoiceBuffer, invoiceId, agreementUrl, invoiceUrl) {
+  const partnerId = partner.id.toString();
+  const partnerEmail = partner.email;
+  const partnerName = partner.name;
+
+  // 1. Email to Partner
+  const partnerHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>Welcome to Homecarehelp, ${partnerName}!</h2>
+      <p>Thank you for registering as a service partner. Your payment of ₹2,950 has been received successfully.</p>
+      <p>Your service kit (ID card, T-shirt, documents) will be dispatched to your registered address shortly.</p>
+      <p>Please find attached:</p>
+      <ul>
+        <li>Service Partner Agreement (Agreement ID: ${partner.agreement_id})</li>
+        <li>Payment Invoice (Invoice No: ${invoiceId})</li>
+      </ul>
+      <p>You can also download these documents from your partner dashboard.</p>
+      <p>If you have any questions, reach out to us at <a href="mailto:support@homecarehelp.com">support@homecarehelp.com</a>.</p>
+      <br/>
+      <p>Regards,<br/>Team Homecarehelp</p>
+    </div>
+  `;
+
+  await emailService.sendMail({
+    to: partnerEmail,
+    subject: 'Registration Confirmed – Welcome to Homecarehelp',
+    html: partnerHtml,
+    attachments: [
+      {
+        filename: `Homecarehelp_Service_Agreement_${partnerId}.pdf`,
+        content: agreementBuffer,
+        contentType: 'application/pdf'
+      },
+      {
+        filename: `Invoice_${invoiceId}.pdf`,
+        content: invoiceBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  });
+
+  // 2. Internal notification to admin / operations team
+  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'support@homecarehelp.com';
+  const adminHtml = `
+    <div style="font-family: Arial, sans-serif;">
+      <h2>New Partner Registration</h2>
+      <p><strong>Partner ID:</strong> ${partnerId}</p>
+      <p><strong>Name:</strong> ${partnerName}</p>
+      <p><strong>Email:</strong> ${partnerEmail}</p>
+      <p><strong>Phone:</strong> ${partner.phone_number}</p>
+      <p><strong>Working City:</strong> ${partner.working_city}</p>
+      <p><strong>Pincode:</strong> ${partner.pincode}</p>
+      <p><strong>Services Selected:</strong> ${typeof partner.selected_services === 'string' ? partner.selected_services : JSON.stringify(partner.selected_services)}</p>
+      <p><strong>Agreement ID:</strong> ${partner.agreement_id}</p>
+      <p><strong>Invoice ID:</strong> ${invoiceId}</p>
+      <p><strong>Agreement URL:</strong> <a href="${agreementUrl}">Download Agreement</a></p>
+      <p><strong>Invoice URL:</strong> <a href="${invoiceUrl}">Download Invoice</a></p>
+      <br/>
+      <p><em>This is an automated notification. Please process the welcome kit dispatch.</em></p>
+    </div>
+  `;
+
+  await emailService.sendMail({
+    to: adminEmail,
+    subject: `New Partner Registration – ${partnerName} (ID: ${partnerId})`,
+    html: adminHtml,
+    attachments: [
+      {
+        filename: `Agreement_${partnerId}.pdf`,
+        content: agreementBuffer,
+        contentType: 'application/pdf'
+      },
+      {
+        filename: `Invoice_${invoiceId}.pdf`,
+        content: invoiceBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  });
+
+  console.log('[Email] Confirmation emails sent successfully', { partnerId, invoiceId });
 }
 
 async function handlePaymentFailed(partner, data) {
