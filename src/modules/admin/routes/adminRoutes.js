@@ -1,8 +1,9 @@
 const router = require('express').Router();
-const adminController = require('../controllers/adminController');
+const controller = require('../controllers/adminController');
+const superAdminAuth = require('../../../common/middlewares/superAdminAuth');
+const { authLimiter } = require('../../../common/middlewares/rateLimiter');
 
-// Placeholder module — every route responds 501 until admin login,
-// bookings view, accept/reject, and partner-onboarding-view are built.
-router.all('*', adminController.notImplemented);
+router.post('/login', authLimiter, controller.login);
+router.get('/bookings', superAdminAuth, controller.getBookings);
 
 module.exports = router;
