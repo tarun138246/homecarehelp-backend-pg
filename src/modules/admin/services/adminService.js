@@ -60,7 +60,7 @@ async function getAllBookings() {
 }
 
 /**
- * Fetch a single booking by ID – full detail (booking_id, name, phone, total_amount, address)
+ * Fetch a single booking by ID – full detail (all booking information)
  */
 async function getBookingById(id) {
   // Optional validation – converts safely and returns 400 on garbage input
@@ -72,12 +72,23 @@ async function getBookingById(id) {
     throw Object.assign(new Error('Booking not found'), { status: 404 });
   }
 
+  // Fetch service details from services_id array
+  const servicesBooked = await adminRepo.fetchServicesDetails(booking.services_id);
+
   return {
-    booking_id: booking.booking_id.toString(),  // keep consistent string representation
+    booking_id: booking.booking_id.toString(),
     name: booking.users.name,
+    email: booking.users.email,
     phone_number: booking.users.phone_number,
     total_amount: booking.total_amount.toString(),
     address: booking.address,
+    services_booked: servicesBooked,
+    scheduled_date: booking.scheduled_date,
+    time_slot: booking.time_slot,
+    payment_status: booking.payment_status,
+    payment_details: booking.payment_details,
+    status: booking.status,
+    created_at: booking.created_at,
   };
 }
 
