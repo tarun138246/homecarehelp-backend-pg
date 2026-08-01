@@ -3,6 +3,7 @@ const prisma = require('../../../common/prismaClient');
 exports.findAllBookings = () => {
   return prisma.bookings.findMany({
     select: {
+      booking_id: true,
       total_amount: true,
       address: true,
       users: {

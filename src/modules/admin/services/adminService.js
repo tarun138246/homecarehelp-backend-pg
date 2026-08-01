@@ -45,12 +45,13 @@ function toBigIntOrThrow(str, fieldName) {
 }
 
 /**
- * Fetch all bookings – simplified list (name, phone, total_amount, address)
+ * Fetch all bookings – simplified list (booking_id, name, phone, total_amount, address)
  */
 async function getAllBookings() {
   const bookings = await adminRepo.findAllBookings();
 
   return bookings.map((b) => ({
+    booking_id: b.booking_id.toString(),
     name: b.users.name,
     phone_number: b.users.phone_number,
     total_amount: b.total_amount.toString(),
