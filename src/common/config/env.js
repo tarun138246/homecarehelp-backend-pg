@@ -82,13 +82,16 @@ module.exports = {
   pratimaApiKey: process.env.PRATIMA_API_KEY,
   pratimaCompanyId: process.env.PRATIMA_COMPANY_ID,
 
-  corsOrigins: [
-    'https://www.homecarehelp.in',
-    'https://homecarehelp.in',
-    'https://backend.homecarehelp.in',
-    'http://localhost:3000',
-    'http://localhost:3001'
-  ],
+  corsOrigins: process.env.CORS_ORIGINS 
+    ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+    : [
+        'https://www.homecarehelp.in',
+        'https://homecarehelp.in',
+        'https://backend.homecarehelp.in',
+        'https://homecarehelp-admin.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001'
+      ],
 
   puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
 

@@ -29,32 +29,41 @@ const app = express();
 app.set('trust proxy', 1);
 
 // CORS
-const allowedOrigins = [
+const allowedOrigins = env.corsOrigins || [
   'https://www.homecarehelp.in',
   'https://homecarehelp.in',
+  'https://homecarehelp-admin.vercel.app',
   'http://localhost:3000',
   'http://localhost:3001',
-  
+];
+
+// Add Cashfree IPs for webhooks
+const cashfreeIPs = [
   '52.66.25.127',
   '15.206.45.168',
   '52.66.101.190',
   '3.109.102.144',
   '18.60.134.245',
   '18.60.183.142',
-  
-  'https://sandbox.cashfree.com',
-  'https://api.cashfree.com',
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
     }
+    
+    // Check if request is from Cashfree webhook (by IP)
+    const requestIP = origin.replace(/^https?:\/\//, '');
+    if (cashfreeIPs.includes(requestIP)) {
+      return callback(null, true);
+    }
+    
+    console.warn(`CORS blocked origin: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'Accept', 'Origin'],
