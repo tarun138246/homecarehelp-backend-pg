@@ -9,6 +9,15 @@ exports.createBooking = async (req, res, next) => {
   }
 };
 
+exports.getUserBookings = async (req, res, next) => {
+  try {
+    const bookings = await bookingService.getUserBookings(req.user.userId);
+    res.json(bookings);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.getBookingById = async (req, res, next) => {
   try {
     const booking = await bookingService.getBookingDetail(req.user.userId, req.params.id);
