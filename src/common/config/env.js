@@ -83,7 +83,7 @@ module.exports = {
   pratimaCompanyId: process.env.PRATIMA_COMPANY_ID,
 
   corsOrigins: process.env.CORS_ORIGINS 
-    ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+    ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(origin => origin.length > 0)
     : [
         'https://www.homecarehelp.in',
         'https://homecarehelp.in',

@@ -28,7 +28,7 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// CORS
+// CORS Configuration - MUST be before any other middleware
 const allowedOrigins = env.corsOrigins || [
   'https://www.homecarehelp.in',
   'https://homecarehelp.in',
@@ -37,41 +37,40 @@ const allowedOrigins = env.corsOrigins || [
   'http://localhost:3001',
 ];
 
-// Add Cashfree IPs for webhooks
-const cashfreeIPs = [
-  '52.66.25.127',
-  '15.206.45.168',
-  '52.66.101.190',
-  '3.109.102.144',
-  '18.60.134.245',
-  '18.60.183.142',
-];
+console.log('[CORS] Allowed origins:', allowedOrigins);
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
+    // Allow requests with no origin (like mobile apps, Postman, curl)
+    if (!origin) {
+      console.log('[CORS] Request with no origin - allowing');
+      return callback(null, true);
+    }
     
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
+      console.log('[CORS] Allowed origin:', origin);
       return callback(null, true);
     }
     
-    // Check if request is from Cashfree webhook (by IP)
-    const requestIP = origin.replace(/^https?:\/\//, '');
-    if (cashfreeIPs.includes(requestIP)) {
-      return callback(null, true);
-    }
-    
-    console.warn(`CORS blocked origin: ${origin}`);
+    console.warn(`[CORS] BLOCKED origin: ${origin}`);
+    console.warn(`[CORS] Allowed origins are:`, allowedOrigins);
     callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'Accept', 'Origin', 'X-Forwarded-For'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
   credentials: true,
-  maxAge: 86400
-}));
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
 
-app.options('*', cors());
+// Handle preflight OPTIONS requests FIRST (before any other middleware)
+app.options('*', cors(corsOptions));
+
+// Apply CORS to all routes
+app.use(cors(corsOptions));
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(compression());
