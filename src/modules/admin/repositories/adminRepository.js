@@ -1,5 +1,9 @@
 const prisma = require('../../../common/prismaClient');
 
+// ------------------------------------------------------------
+//  BOOKINGS
+// ------------------------------------------------------------
+
 exports.findAllBookings = () => {
   return prisma.bookings.findMany({
     select: {
@@ -135,5 +139,129 @@ exports.fetchServicesDetails = async (servicesIdData) => {
       quantity: quantity,
       pricing_type: serviceData.pricing_type,
     };
+  });
+};
+
+// ------------------------------------------------------------
+//  CATEGORIES
+// ------------------------------------------------------------
+
+exports.findAllCategories = () => {
+  return prisma.service_categories.findMany({
+    orderBy: { category_id: 'asc' },
+    include: {
+      _count: {
+        select: { service_subcategories: true }
+      }
+    }
+  });
+};
+
+exports.findCategoryById = (id) => {
+  return prisma.service_categories.findUnique({
+    where: { category_id: id }
+  });
+};
+
+exports.findCategoryByName = (name) => {
+  return prisma.service_categories.findFirst({
+    where: { category_name: name }
+  });
+};
+
+exports.createCategory = (data) => {
+  return prisma.service_categories.create({
+    data: {
+      category_name: data.category_name,
+    }
+  });
+};
+
+exports.updateCategory = (id, data) => {
+  return prisma.service_categories.update({
+    where: { category_id: id },
+    data: {
+      category_name: data.category_name,
+      updated_at: new Date()
+    }
+  });
+};
+
+exports.deleteCategory = (id) => {
+  return prisma.service_categories.delete({
+    where: { category_id: id }
+  });
+};
+
+exports.getSubcategoriesByCategoryId = (categoryId) => {
+  return prisma.service_subcategories.findMany({
+    where: { category_id: categoryId },
+    include: {
+      _count: { select: { services: true } }
+    }
+  });
+};
+
+// ------------------------------------------------------------
+//  SUBCATEGORIES
+// ------------------------------------------------------------
+
+exports.findAllSubcategories = () => {
+  return prisma.service_subcategories.findMany({
+    orderBy: { subcategory_id: 'asc' },
+    include: {
+      service_categories: {
+        select: { category_id: true, category_name: true }
+      },
+      _count: {
+        select: { services: true }
+      }
+    }
+  });
+};
+
+exports.findSubcategoryById = (id) => {
+  return prisma.service_subcategories.findUnique({
+    where: { subcategory_id: id }
+  });
+};
+
+exports.findSubcategoryByNameAndCategory = (name, categoryId) => {
+  return prisma.service_subcategories.findFirst({
+    where: {
+      subcategory_name: name,
+      category_id: categoryId
+    }
+  });
+};
+
+exports.createSubcategory = (data) => {
+  return prisma.service_subcategories.create({
+    data: {
+      category_id: data.category_id,
+      subcategory_name: data.subcategory_name,
+    }
+  });
+};
+
+exports.updateSubcategory = (id, data) => {
+  return prisma.service_subcategories.update({
+    where: { subcategory_id: id },
+    data: {
+      subcategory_name: data.subcategory_name,
+      updated_at: new Date()
+    }
+  });
+};
+
+exports.deleteSubcategory = (id) => {
+  return prisma.service_subcategories.delete({
+    where: { subcategory_id: id }
+  });
+};
+
+exports.getServiceCountBySubcategoryId = (subcategoryId) => {
+  return prisma.services.count({
+    where: { subcategory_id: subcategoryId }
   });
 };

@@ -92,4 +92,187 @@ async function getBookingById(id) {
   };
 }
 
-module.exports = { authenticateSuperAdmin, getAllBookings, getBookingById };
+// ============================================================
+//  CATEGORY MANAGEMENT
+// ============================================================
+
+async function getAllCategories() {
+  const categories = await adminRepo.findAllCategories();
+  return categories.map(cat => ({
+    category_id: cat.category_id,
+    category_name: cat.category_name,
+    subcategory_count: cat._count.service_subcategories,
+    created_at: cat.created_at,
+    updated_at: cat.updated_at
+  }));
+}
+
+async function createCategory({ category_name }) {
+  if (!category_name || typeof category_name !== 'string' || !category_name.trim()) {
+    throw Object.assign(new Error('Category name is required'), { status: 400 });
+  }
+  const existing = await adminRepo.findCategoryByName(category_name.trim());
+  if (existing) {
+    throw Object.assign(new Error('Category name already exists'), { status: 409 });
+  }
+  const category = await adminRepo.createCategory({ category_name: category_name.trim() });
+  return category;
+}
+
+async function updateCategory(id, { category_name }) {
+  const catId = parseInt(id, 10);
+  if (isNaN(catId)) {
+    throw Object.assign(new Error('Invalid category ID'), { status: 400 });
+  }
+  if (!category_name || !category_name.trim()) {
+    throw Object.assign(new Error('Category name is required'), { status: 400 });
+  }
+
+  const category = await adminRepo.findCategoryById(catId);
+  if (!category) {
+    throw Object.assign(new Error('Category not found'), { status: 404 });
+  }
+
+  const existing = await adminRepo.findCategoryByName(category_name.trim());
+  if (existing && existing.category_id !== catId) {
+    throw Object.assign(new Error('Category name already exists'), { status: 409 });
+  }
+
+  const updated = await adminRepo.updateCategory(catId, { category_name: category_name.trim() });
+  return updated;
+}
+
+async function deleteCategory(id) {
+  const catId = parseInt(id, 10);
+  if (isNaN(catId)) {
+    throw Object.assign(new Error('Invalid category ID'), { status: 400 });
+  }
+
+  const category = await adminRepo.findCategoryById(catId);
+  if (!category) {
+    throw Object.assign(new Error('Category not found'), { status: 404 });
+  }
+
+  // Prevent deletion if any subcategory has services
+  const subcategories = await adminRepo.getSubcategoriesByCategoryId(catId);
+  for (const sub of subcategories) {
+    if (sub._count.services > 0) {
+      throw Object.assign(
+        new Error('Cannot delete category: it has subcategories with assigned services'),
+        { status: 409 }
+      );
+    }
+  }
+
+  // Cascade delete will remove any subcategory without services
+  await adminRepo.deleteCategory(catId);
+  return { message: 'Category deleted successfully' };
+}
+
+// ============================================================
+//  SUBCATEGORY MANAGEMENT
+// ============================================================
+
+async function getAllSubcategories() {
+  const subcategories = await adminRepo.findAllSubcategories();
+  return subcategories.map(sub => ({
+    subcategory_id: sub.subcategory_id,
+    subcategory_name: sub.subcategory_name,
+    category_id: sub.category_id,
+    category_name: sub.service_categories.category_name,
+    services_count: sub._count.services,
+    created_at: sub.created_at,
+    updated_at: sub.updated_at
+  }));
+}
+
+async function createSubcategory({ category_id, subcategory_name }) {
+  const catId = parseInt(category_id, 10);
+  if (isNaN(catId)) {
+    throw Object.assign(new Error('Invalid category_id'), { status: 400 });
+  }
+  if (!subcategory_name || !subcategory_name.trim()) {
+    throw Object.assign(new Error('Subcategory name is required'), { status: 400 });
+  }
+
+  const category = await adminRepo.findCategoryById(catId);
+  if (!category) {
+    throw Object.assign(new Error('Category not found'), { status: 404 });
+  }
+
+  const existing = await adminRepo.findSubcategoryByNameAndCategory(subcategory_name.trim(), catId);
+  if (existing) {
+    throw Object.assign(new Error('Subcategory name already exists in this category'), { status: 409 });
+  }
+
+  const sub = await adminRepo.createSubcategory({
+    category_id: catId,
+    subcategory_name: subcategory_name.trim()
+  });
+  return sub;
+}
+
+async function updateSubcategory(id, { subcategory_name }) {
+  const subId = parseInt(id, 10);
+  if (isNaN(subId)) {
+    throw Object.assign(new Error('Invalid subcategory ID'), { status: 400 });
+  }
+  if (!subcategory_name || !subcategory_name.trim()) {
+    throw Object.assign(new Error('Subcategory name is required'), { status: 400 });
+  }
+
+  const subcategory = await adminRepo.findSubcategoryById(subId);
+  if (!subcategory) {
+    throw Object.assign(new Error('Subcategory not found'), { status: 404 });
+  }
+
+  const existing = await adminRepo.findSubcategoryByNameAndCategory(
+    subcategory_name.trim(),
+    subcategory.category_id
+  );
+  if (existing && existing.subcategory_id !== subId) {
+    throw Object.assign(new Error('Subcategory name already exists in this category'), { status: 409 });
+  }
+
+  const updated = await adminRepo.updateSubcategory(subId, {
+    subcategory_name: subcategory_name.trim()
+  });
+  return updated;
+}
+
+async function deleteSubcategory(id) {
+  const subId = parseInt(id, 10);
+  if (isNaN(subId)) {
+    throw Object.assign(new Error('Invalid subcategory ID'), { status: 400 });
+  }
+
+  const subcategory = await adminRepo.findSubcategoryById(subId);
+  if (!subcategory) {
+    throw Object.assign(new Error('Subcategory not found'), { status: 404 });
+  }
+
+  const servicesCount = await adminRepo.getServiceCountBySubcategoryId(subId);
+  if (servicesCount > 0) {
+    throw Object.assign(
+      new Error('Cannot delete subcategory: it has assigned services'),
+      { status: 409 }
+    );
+  }
+
+  await adminRepo.deleteSubcategory(subId);
+  return { message: 'Subcategory deleted successfully' };
+}
+
+module.exports = {
+  authenticateSuperAdmin,
+  getAllBookings,
+  getBookingById,
+  getAllCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  getAllSubcategories,
+  createSubcategory,
+  updateSubcategory,
+  deleteSubcategory
+};

@@ -46,3 +46,83 @@ exports.getBookingById = async (req, res, next) => {
     next(err);
   }
 };
+
+// ------------------------------------------------------------
+//  CATEGORY ENDPOINTS
+// ------------------------------------------------------------
+
+exports.getCategories = async (req, res, next) => {
+  try {
+    const categories = await superAdminService.getAllCategories();
+    res.json({ categories });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createCategory = async (req, res, next) => {
+  try {
+    const category = await superAdminService.createCategory(req.body);
+    res.status(201).json({ category });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateCategory = async (req, res, next) => {
+  try {
+    const category = await superAdminService.updateCategory(req.params.id, req.body);
+    res.json({ category });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteCategory = async (req, res, next) => {
+  try {
+    const result = await superAdminService.deleteCategory(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ------------------------------------------------------------
+//  SUBCATEGORY ENDPOINTS
+// ------------------------------------------------------------
+
+exports.getSubcategories = async (req, res, next) => {
+  try {
+    const subcategories = await superAdminService.getAllSubcategories();
+    res.json({ subcategories });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createSubcategory = async (req, res, next) => {
+  try {
+    const subcategory = await superAdminService.createSubcategory(req.body);
+    res.status(201).json({ subcategory });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateSubcategory = async (req, res, next) => {
+  try {
+    const subcategory = await superAdminService.updateSubcategory(req.params.id, req.body);
+    res.json({ subcategory });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteSubcategory = async (req, res, next) => {
+  try {
+    const result = await superAdminService.deleteSubcategory(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
