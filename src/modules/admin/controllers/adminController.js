@@ -126,3 +126,44 @@ exports.deleteSubcategory = async (req, res, next) => {
     next(err);
   }
 };
+
+
+// ------------------------------------------------------------
+//  SERVICE ENDPOINTS
+// ------------------------------------------------------------
+
+exports.getServices = async (req, res, next) => {
+  try {
+    const services = await superAdminService.getAllServices();
+    res.json({ services });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createService = async (req, res, next) => {
+  try {
+    const service = await superAdminService.createService(req.body);
+    res.status(201).json({ service });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateService = async (req, res, next) => {
+  try {
+    const service = await superAdminService.updateService(req.params.id, req.body);
+    res.json({ service });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteService = async (req, res, next) => {
+  try {
+    const result = await superAdminService.deleteService(req.params.id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};

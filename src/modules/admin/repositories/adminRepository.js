@@ -265,3 +265,88 @@ exports.getServiceCountBySubcategoryId = (subcategoryId) => {
     where: { subcategory_id: subcategoryId }
   });
 };
+
+// ------------------------------------------------------------
+//  SERVICES
+// ------------------------------------------------------------
+
+/**
+ * List services with only id, name, and subcategory_id
+ */
+exports.findAllServices = () => {
+  return prisma.services.findMany({
+    select: {
+      service_id: true,
+      service_name: true,
+      subcategory_id: true,
+    },
+    orderBy: { service_name: 'asc' },
+  });
+};
+
+/**
+ * Find a single service by its string ID
+ */
+exports.findServiceById = (serviceId) => {
+  return prisma.services.findUnique({
+    where: { service_id: serviceId },
+  });
+};
+
+/**
+ * Generate a unique service_id based on the service name.
+ * Algorithm: first 5 alphanumeric chars of name (lowercased) + 4-digit random number.
+ * Retry until a unique ID is found (max 10 attempts to avoid infinite loops).
+ */
+exports.generateServiceId = async (serviceName) => {
+  const prefix = serviceName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')       // strip non-alphanumeric
+    .slice(0, 5) || 'srv';           // fallback to 'srv' if empty
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const suffix = Math.floor(Math.random() * 10000)
+      .toString()
+      .padStart(4, '0');
+    const candidate = `${prefix}${suffix}`;
+
+    const existing = await prisma.services.findUnique({
+      where: { service_id: candidate },
+      select: { service_id: true },
+    });
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Unable to generate unique service ID after 10 attempts');
+};
+
+/**
+ * Create a new service record
+ */
+exports.createService = (data) => {
+  return prisma.services.create({ data });
+};
+
+/**
+ * Update a service partially (only provided fields)
+ */
+exports.updateService = (serviceId, data) => {
+  return prisma.services.update({
+    where: { service_id: serviceId },
+    data: {
+      ...data,
+      updated_at: new Date(),
+    },
+  });
+};
+
+/**
+ * Delete a service by its string ID
+ */
+exports.deleteService = (serviceId) => {
+  return prisma.services.delete({
+    where: { service_id: serviceId },
+  });
+};

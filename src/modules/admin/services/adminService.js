@@ -263,6 +263,213 @@ async function deleteSubcategory(id) {
   return { message: 'Subcategory deleted successfully' };
 }
 
+
+// ============================================================
+//  SERVICE MANAGEMENT
+// ============================================================
+
+/**
+ * List all services (admin view)
+ */
+async function getAllServices() {
+  const services = await adminRepo.findAllServices();
+  return services;
+}
+
+/**
+ * Create a new service
+ */
+async function createService(body) {
+  const {
+    subcategory_id,
+    service_name,
+    description,
+    pricing_type,
+    base_price,
+    duration,
+    images,
+    tags,
+    includes,
+    variants,
+    // optional fields with sensible defaults
+    price_multiplier = null,
+    visiting_charge = null,
+    warranty = null,
+    min_price = null,
+    price_per_sqft = null,
+    bhk_prices = null,
+    is_popular = false,
+    popularity_rank = null,
+    is_active = true,
+  } = body;
+
+  // ---------- Validation ----------
+  const errors = [];
+
+  if (!service_name || typeof service_name !== 'string' || !service_name.trim()) {
+    errors.push('service_name is required');
+  }
+  if (!subcategory_id || isNaN(parseInt(subcategory_id, 10))) {
+    errors.push('subcategory_id must be a valid integer');
+  }
+  if (!description || typeof description !== 'string' || !description.trim()) {
+    errors.push('description is required');
+  }
+  if (!pricing_type || typeof pricing_type !== 'string') {
+    errors.push('pricing_type is required');
+  }
+  if (!duration || typeof duration !== 'string' || !duration.trim()) {
+    errors.push('duration is required');
+  }
+
+  // images: must be a non-empty array
+  if (!Array.isArray(images) || images.length === 0) {
+    errors.push('images must be a non-empty array');
+  }
+
+  // tags: must be a non-empty array
+  if (!Array.isArray(tags) || tags.length === 0) {
+    errors.push('tags must be a non-empty array');
+  }
+
+  // includes: must be a non-empty array
+  if (!Array.isArray(includes) || includes.length === 0) {
+    errors.push('includes must be a non-empty array');
+  }
+
+  // Conditional required fields
+  if (pricing_type === 'fixed') {
+    if (base_price === undefined || base_price === null || isNaN(Number(base_price))) {
+      errors.push('base_price is required when pricing_type is "fixed"');
+    }
+  }
+
+  if (pricing_type === 'variants') {
+    if (!variants || (Array.isArray(variants) && variants.length === 0) || typeof variants !== 'object') {
+      errors.push('variants must be a non-empty array/object when pricing_type is "variants"');
+    }
+  }
+
+  if (errors.length) {
+    throw Object.assign(new Error(`Validation failed: ${errors.join('; ')}`), { status: 400 });
+  }
+
+  // Verify subcategory exists
+  const subcategory = await adminRepo.findSubcategoryById(parseInt(subcategory_id, 10));
+  if (!subcategory) {
+    throw Object.assign(new Error('Subcategory not found'), { status: 404 });
+  }
+
+  // Generate unique service_id
+  const service_id = await adminRepo.generateServiceId(service_name.trim());
+
+  // Build create payload
+  const createData = {
+    service_id,
+    subcategory_id: parseInt(subcategory_id, 10),
+    service_name: service_name.trim(),
+    description,
+    pricing_type,
+    duration,
+    images,
+    tags,
+    includes,
+    variants: variants || [],
+    base_price: base_price ? Number(base_price) : null,
+    price_multiplier: price_multiplier ? Number(price_multiplier) : null,
+    visiting_charge: visiting_charge ? Number(visiting_charge) : null,
+    warranty: warranty || null,
+    min_price: min_price ? Number(min_price) : null,
+    price_per_sqft: price_per_sqft ? Number(price_per_sqft) : null,
+    bhk_prices: bhk_prices || null,
+    is_popular: Boolean(is_popular),
+    popularity_rank: popularity_rank ? parseInt(popularity_rank, 10) : null,
+    is_active: Boolean(is_active),
+  };
+
+  const service = await adminRepo.createService(createData);
+  return service;
+}
+
+/**
+ * Update an existing service (partial)
+ */
+async function updateService(id, body) {
+  // id is the service_id string
+  if (!id || typeof id !== 'string') {
+    throw Object.assign(new Error('Invalid service ID'), { status: 400 });
+  }
+
+  const existing = await adminRepo.findServiceById(id);
+  if (!existing) {
+    throw Object.assign(new Error('Service not found'), { status: 404 });
+  }
+
+  // Build an object with only the fields that are present in the body
+  const allowedFields = [
+    'subcategory_id', 'service_name', 'description', 'pricing_type',
+    'base_price', 'min_price', 'price_per_sqft', 'duration', 'warranty',
+    'images', 'includes', 'tags', 'variants', 'bhk_prices',
+    'is_popular', 'popularity_rank', 'is_active', 'price_multiplier',
+    'visiting_charge'
+  ];
+
+  const updateData = {};
+  for (const field of allowedFields) {
+    if (body[field] !== undefined) {
+      // Parse numeric fields
+      if (['subcategory_id', 'popularity_rank'].includes(field)) {
+        const val = parseInt(body[field], 10);
+        if (isNaN(val)) continue; // ignore invalid numbers
+        updateData[field] = val;
+      } else if (['base_price', 'min_price', 'price_per_sqft', 'price_multiplier', 'visiting_charge'].includes(field)) {
+        const val = parseFloat(body[field]);
+        if (isNaN(val)) continue;
+        updateData[field] = val;
+      } else {
+        // String or JSON fields – accept as-is (validation could be added if needed)
+        updateData[field] = body[field];
+      }
+    }
+  }
+
+  // If subcategory_id is being changed, verify it exists
+  if (updateData.subcategory_id) {
+    const sub = await adminRepo.findSubcategoryById(updateData.subcategory_id);
+    if (!sub) {
+      throw Object.assign(new Error('Target subcategory not found'), { status: 404 });
+    }
+  }
+
+  // Pricing type constraints could be checked here (optional).
+
+  if (Object.keys(updateData).length === 0) {
+    throw Object.assign(new Error('No valid fields provided for update'), { status: 400 });
+  }
+
+  const updated = await adminRepo.updateService(id, updateData);
+  return updated;
+}
+
+/**
+ * Delete a service
+ */
+async function deleteService(id) {
+  if (!id || typeof id !== 'string') {
+    throw Object.assign(new Error('Invalid service ID'), { status: 400 });
+  }
+
+  const existing = await adminRepo.findServiceById(id);
+  if (!existing) {
+    throw Object.assign(new Error('Service not found'), { status: 404 });
+  }
+
+  // No checks against bookings – just delete
+  await adminRepo.deleteService(id);
+  return { message: 'Service deleted successfully' };
+}
+
+
 module.exports = {
   authenticateSuperAdmin,
   getAllBookings,
@@ -274,5 +481,9 @@ module.exports = {
   getAllSubcategories,
   createSubcategory,
   updateSubcategory,
-  deleteSubcategory
+  deleteSubcategory,
+  getAllServices,
+  createService,
+  updateService,
+  deleteService,
 };
