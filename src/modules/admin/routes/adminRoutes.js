@@ -22,6 +22,7 @@ router.delete('/subcategories/:id', superAdminAuth, controller.deleteSubcategory
 
 // Service routes
 router.get('/services', superAdminAuth, controller.getServices);
+router.get('/services/:id', superAdminAuth, controller.getServiceById);
 router.post('/services', superAdminAuth, controller.createService);
 router.patch('/services/:id', superAdminAuth, controller.updateService);
 router.delete('/services/:id', superAdminAuth, controller.deleteService);

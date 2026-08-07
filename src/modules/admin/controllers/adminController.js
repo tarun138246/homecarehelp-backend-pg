@@ -141,6 +141,16 @@ exports.getServices = async (req, res, next) => {
   }
 };
 
+exports.getServiceById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const service = await superAdminService.getServiceById(id);
+    res.json({ service });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.createService = async (req, res, next) => {
   try {
     const service = await superAdminService.createService(req.body);

@@ -276,6 +276,16 @@ async function getAllServices() {
   return services;
 }
 
+
+/** Get Service by ID */
+async function getServiceById(id) {
+  const service = await adminRepo.findServiceById(id);
+  if (!service) {
+    throw Object.assign(new Error('Service not found'), { status: 404 });
+  }
+  return service;
+}
+
 /**
  * Create a new service
  */
