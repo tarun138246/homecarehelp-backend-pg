@@ -493,6 +493,7 @@ module.exports = {
   updateSubcategory,
   deleteSubcategory,
   getAllServices,
+  getServiceById,
   createService,
   updateService,
   deleteService,
