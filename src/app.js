@@ -9,6 +9,7 @@ const morgan = require('morgan');
 const errorHandler = require('./common/middlewares/errorHandler');
 const { apiLimiter, authLimiter } = require('./common/middlewares/rateLimiter');
 const env = require('./common/config/env');
+const corsOrigins = require('./common/config/cors');
 
 const cleanupJob = require('./common/jobs/cleanupJob');
 const paymentResetJob = require('./common/jobs/resetStalePayments');
@@ -23,55 +24,28 @@ const partnerRoutes = require('./modules/partners/routes/partnerRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 const webhookRoutes = require('./modules/webhooks/routes/webhookRoutes');
 
-
 const app = express();
 
 app.set('trust proxy', 1);
 
-// CORS Configuration - MUST be before any other middleware
-const allowedOrigins = env.corsOrigins || [
-  'https://www.homecarehelp.in',
-  'https://homecarehelp.in',
-  'https://homecarehelp-admin.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:3001',
-];
+// ------------------------------------------------
+// CORS CONFIGURATION
+// ------------------------------------------------
+console.log('[CORS] Allowed origins:', corsOrigins);
 
-console.log('[CORS] Allowed origins:', allowedOrigins);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, Postman, curl)
-    if (!origin) {
-      console.log('[CORS] Request with no origin - allowing');
-      return callback(null, true);
-    }
-    
-    // Check if origin is in allowed list
-    if (allowedOrigins.includes(origin)) {
-      console.log('[CORS] Allowed origin:', origin);
-      return callback(null, true);
-    }
-    
-    console.warn(`[CORS] BLOCKED origin: ${origin}`);
-    console.warn(`[CORS] Allowed origins are:`, allowedOrigins);
-    callback(new Error('Not allowed by CORS'));
-  },
+app.use(cors({
+  origin: corsOrigins,                
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'Accept', 'Origin', 'X-Forwarded-For'],
   exposedHeaders: ['Content-Length', 'X-Request-Id'],
-  credentials: true,
-  maxAge: 86400, // 24 hours
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-};
+  maxAge: 86400,                     // 24 hours
+  optionsSuccessStatus: 204,
+}));
 
-// Handle preflight OPTIONS requests FIRST (before any other middleware)
-app.options('*', cors(corsOptions));
-
-// Apply CORS to all routes
-app.use(cors(corsOptions));
-
+// ------------------------------------------------
+// Security & utility middlewares
+// ------------------------------------------------
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(compression());
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
@@ -81,7 +55,6 @@ app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 // Must come BEFORE express.json()
 // ============================================================
 
-// NEW unified webhook endpoint (for both bookings and partners)
 app.use('/api/confirm-order-wb', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
   req.rawBody = req.body.toString('utf8');
   try {
@@ -95,6 +68,9 @@ app.use('/api/confirm-order-wb', express.raw({ type: 'application/json', limit: 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
+// ------------------------------------------------
+// Routes
+// ------------------------------------------------
 app.use('/health', healthRoutes);
 app.use('/api', apiLimiter);
 app.use('/api/auth', authLimiter, authRoutes);
@@ -105,18 +81,25 @@ app.use('/api/partner', partnerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', webhookRoutes);
 
+// 404 handler
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
+// Sentry error handler (if enabled)
 if (sentryEnabled) {
   sentryConfig.setupExpress(app);
 }
 
+// Global error handler
 app.use(errorHandler);
 
+// ------------------------------------------------
+// Start background jobs
+// ------------------------------------------------
 cleanupJob.start();
 paymentResetJob.start();
 partnerStaleCleanup.start();
 
+// Graceful shutdown signals (app level)
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Shutting down...');
   cleanupJob.stop();
