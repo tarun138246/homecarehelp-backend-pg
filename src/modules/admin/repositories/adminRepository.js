@@ -279,6 +279,7 @@ exports.findAllServices = () => {
       service_id: true,
       service_name: true,
       subcategory_id: true,
+      images: true, 
     },
     orderBy: { service_name: 'asc' },
   });

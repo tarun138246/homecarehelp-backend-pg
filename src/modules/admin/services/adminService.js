@@ -273,7 +273,15 @@ async function deleteSubcategory(id) {
  */
 async function getAllServices() {
   const services = await adminRepo.findAllServices();
-  return services;
+
+  return services.map(service => ({
+    service_id: service.service_id,
+    service_name: service.service_name,
+    subcategory_id: service.subcategory_id,
+    thumbnail_image: Array.isArray(service.images) && service.images.length > 0
+      ? service.images[0]
+      : null,                    
+  }));
 }
 
 
