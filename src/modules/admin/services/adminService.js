@@ -488,6 +488,272 @@ async function deleteService(id) {
 }
 
 
+/**
+ * Manually complete partner agreement with uploaded signature and payment details
+ * Used for manual intervention when payment is done but not confirmed
+ */
+async function manuallyCompleteAgreement(partnerId, signatureBase64, paymentDetails) {
+  if (!partnerId || !signatureBase64 || !paymentDetails) {
+    throw Object.assign(
+      new Error('partnerId, signatureBase64, and paymentDetails are required'),
+      { status: 400 }
+    );
+  }
+
+  // Import required utilities
+  const partnerRepo = require('../../partners/repositories/partnerRepository');
+  const { generateAgreementPDF } = require('../../../common/utils/agreementPdf');
+  const { generateAgreementId, generateInvoiceId } = require('../../../common/utils/agreementId');
+  const { generateInvoicePDF } = require('../../../common/utils/invoicePdf');
+  const pratimaClient = require('../../../common/utils/pratimaClient');
+  const { decrypt, secureClear } = require('../../../common/utils/crypto');
+  const emailService = require('../../email/emailService');
+
+  // Fetch partner
+  const partner = await partnerRepo.findById(partnerId);
+  if (!partner) {
+    throw Object.assign(new Error('Partner not found'), { status: 404 });
+  }
+
+  console.log('[Manual Agreement] Starting for partner:', {
+    partnerId: partnerId.toString(),
+    currentStatus: partner.status,
+    email: partner.email
+  });
+
+  // Ensure agreement_id exists
+  let updatedPartner = partner;
+  if (!partner.agreement_id) {
+    const agreementId = generateAgreementId(partnerId);
+    updatedPartner = await partnerRepo.update(partnerId, { agreement_id: agreementId });
+  }
+
+  // Decrypt ID proof for agreement generation
+  let plainIdNumber = null;
+  let plainIdType = null;
+
+  try {
+    if (updatedPartner.id_proof && updatedPartner.id_proof.length > 0) {
+      const primaryProof = updatedPartner.id_proof[0];
+      plainIdType = primaryProof.name;
+      plainIdNumber = decrypt(primaryProof.number, primaryProof.keyUsed, primaryProof.iv);
+
+      console.log('[Manual Agreement] ID decrypted for agreement:', {
+        partnerId: partnerId.toString(),
+        idType: plainIdType
+      });
+    }
+  } catch (decryptError) {
+    console.error('[Manual Agreement] Failed to decrypt ID:', decryptError);
+    throw Object.assign(
+      new Error('Failed to decrypt partner ID proof'),
+      { status: 500 }
+    );
+  }
+
+  try {
+    // Generate agreement PDF with signature
+    console.log('[Manual Agreement] Generating agreement PDF');
+    const pdfBuffer = await generateAgreementPDF(
+      updatedPartner,
+      signatureBase64,
+      plainIdType,
+      plainIdNumber
+    );
+
+    // Generate invoice
+    console.log('[Manual Agreement] Generating invoice');
+    const invoiceId = generateInvoiceId(partnerId);
+    const invoiceBuffer = await generateInvoicePDF(updatedPartner, invoiceId);
+
+    // Upload documents
+    console.log('[Manual Agreement] Uploading documents');
+    const agreementFilename = `agreement_${partnerId}_${Date.now()}.pdf`;
+    const invoiceFilename = `invoice_${partnerId}_${invoiceId}_${Date.now()}.pdf`;
+
+    const [agreementUpload, invoiceUpload] = await Promise.all([
+      pratimaClient.uploadFile(pdfBuffer, agreementFilename, 'application/pdf'),
+      pratimaClient.uploadFile(invoiceBuffer, invoiceFilename, 'application/pdf')
+    ]);
+
+    const agreementUrl = agreementUpload.url;
+    const invoiceUrl = invoiceUpload.url;
+
+    console.log('[Manual Agreement] Documents uploaded:', {
+      agreementUrl,
+      invoiceUrl
+    });
+
+    // Prepare payment details object
+    const formattedPaymentDetails = {
+      order_id: paymentDetails.order_id || `manual_${partnerId}_${Date.now()}`,
+      order_amount: paymentDetails.order_amount || '2950',
+      order_currency: paymentDetails.order_currency || 'INR',
+      payment_id: paymentDetails.payment_id || null,
+      payment_status: 'SUCCESS',
+      payment_time: paymentDetails.payment_time || new Date().toISOString(),
+      payment_method: paymentDetails.payment_method || 'MANUAL',
+      upi_id: paymentDetails.upi_id || null,
+      bank_reference: paymentDetails.bank_reference || null,
+      payment_message: paymentDetails.payment_message || 'Manual completion by admin',
+      created_at: paymentDetails.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'SUCCESS',
+      manual_completion: true,
+      completed_by: 'admin'
+    };
+
+    // Update partner status to confirmed
+    await partnerRepo.update(partnerId, {
+      status: 'confirmed',
+      agreement_url: agreementUrl,
+      invoice_url: invoiceUrl,
+      invoice_id: invoiceId,
+      payment_details: formattedPaymentDetails
+    });
+
+    console.log('[Manual Agreement] Partner confirmed:', {
+      partnerId: partnerId.toString(),
+      invoiceId
+    });
+
+    // Send confirmation emails
+    try {
+      await sendManualCompletionEmails(
+        updatedPartner,
+        pdfBuffer,
+        invoiceBuffer,
+        invoiceId,
+        agreementUrl,
+        invoiceUrl
+      );
+    } catch (emailErr) {
+      console.error('[Manual Agreement] Failed to send emails:', emailErr);
+      // Don't fail the operation if email fails
+    }
+
+    return {
+      success: true,
+      message: 'Agreement completed successfully',
+      partnerId: partnerId.toString(),
+      agreement_url: agreementUrl,
+      invoice_url: invoiceUrl,
+      invoice_id: invoiceId
+    };
+  } finally {
+    // Secure clear sensitive data
+    if (plainIdNumber) {
+      plainIdNumber = secureClear(plainIdNumber);
+      plainIdNumber = null;
+    }
+    if (plainIdType) {
+      plainIdType = secureClear(plainIdType);
+      plainIdType = null;
+    }
+
+    if (global.gc) {
+      global.gc();
+    }
+
+    console.log('[Manual Agreement] Sensitive data cleared from memory');
+  }
+}
+
+/**
+ * Send confirmation emails after manual completion
+ */
+async function sendManualCompletionEmails(
+  partner,
+  agreementBuffer,
+  invoiceBuffer,
+  invoiceId,
+  agreementUrl,
+  invoiceUrl
+) {
+  const emailService = require('../../email/emailService');
+  const partnerId = partner.id.toString();
+  const partnerEmail = partner.email;
+  const partnerName = partner.name;
+
+  // Email to Partner
+  const partnerHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>Welcome to Homecarehelp, ${partnerName}!</h2>
+      <p>Thank you for registering as a service partner. Your payment of ₹2,950 has been received and verified.</p>
+      <p>Your service kit (ID card, T-shirt, documents) will be dispatched to your registered address shortly.</p>
+      <p>Please find attached:</p>
+      <ul>
+        <li>Service Partner Agreement (Agreement ID: ${partner.agreement_id})</li>
+        <li>Payment Invoice (Invoice No: ${invoiceId})</li>
+      </ul>
+      <p>You can also download these documents from your partner dashboard.</p>
+      <p>If you have any questions, reach out to us at <a href="mailto:support@homecarehelp.com">support@homecarehelp.com</a>.</p>
+      <br/>
+      <p>Regards,<br/>Team Homecarehelp</p>
+    </div>
+  `;
+
+  await emailService.sendMail({
+    to: partnerEmail,
+    subject: 'Registration Confirmed – Welcome to Homecarehelp',
+    html: partnerHtml,
+    attachments: [
+      {
+        filename: `Homecarehelp_Service_Agreement_${partnerId}.pdf`,
+        content: agreementBuffer,
+        contentType: 'application/pdf'
+      },
+      {
+        filename: `Invoice_${invoiceId}.pdf`,
+        content: invoiceBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  });
+
+  // Internal notification
+  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'support@homecarehelp.com';
+  const adminHtml = `
+    <div style="font-family: Arial, sans-serif;">
+      <h2>Partner Registration Completed Manually</h2>
+      <p><strong>Partner ID:</strong> ${partnerId}</p>
+      <p><strong>Name:</strong> ${partnerName}</p>
+      <p><strong>Email:</strong> ${partnerEmail}</p>
+      <p><strong>Phone:</strong> ${partner.phone_number}</p>
+      <p><strong>Working City:</strong> ${partner.working_city}</p>
+      <p><strong>Agreement ID:</strong> ${partner.agreement_id}</p>
+      <p><strong>Invoice ID:</strong> ${invoiceId}</p>
+      <p><strong>Agreement URL:</strong> <a href="${agreementUrl}">Download Agreement</a></p>
+      <p><strong>Invoice URL:</strong> <a href="${invoiceUrl}">Download Invoice</a></p>
+      <br/>
+      <p><em>⚠️ This registration was completed manually by admin. Please verify payment details and process welcome kit dispatch.</em></p>
+    </div>
+  `;
+
+  await emailService.sendMail({
+    to: adminEmail,
+    subject: `Manual Partner Registration – ${partnerName} (ID: ${partnerId})`,
+    html: adminHtml,
+    attachments: [
+      {
+        filename: `Agreement_${partnerId}.pdf`,
+        content: agreementBuffer,
+        contentType: 'application/pdf'
+      },
+      {
+        filename: `Invoice_${invoiceId}.pdf`,
+        content: invoiceBuffer,
+        contentType: 'application/pdf'
+      }
+    ]
+  });
+
+  console.log('[Email] Manual completion emails sent successfully', {
+    partnerId,
+    invoiceId
+  });
+}
+
 module.exports = {
   authenticateSuperAdmin,
   getAllBookings,
@@ -505,4 +771,5 @@ module.exports = {
   createService,
   updateService,
   deleteService,
+  manuallyCompleteAgreement,
 };

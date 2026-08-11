@@ -177,3 +177,29 @@ exports.deleteService = async (req, res, next) => {
     next(err);
   }
 };
+
+// ------------------------------------------------------------
+//  PARTNER AGREEMENT MANUAL COMPLETION
+// ------------------------------------------------------------
+
+exports.manuallyCompleteAgreement = async (req, res, next) => {
+  try {
+    const { partnerId, signatureBase64, paymentDetails } = req.body;
+    
+    if (!partnerId || !signatureBase64 || !paymentDetails) {
+      return res.status(400).json({ 
+        error: 'partnerId, signatureBase64, and paymentDetails are required' 
+      });
+    }
+
+    const result = await superAdminService.manuallyCompleteAgreement(
+      partnerId,
+      signatureBase64,
+      paymentDetails
+    );
+    
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};

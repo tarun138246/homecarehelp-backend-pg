@@ -27,4 +27,7 @@ router.post('/services', superAdminAuth, controller.createService);
 router.patch('/services/:id', superAdminAuth, controller.updateService);
 router.delete('/services/:id', superAdminAuth, controller.deleteService);
 
+// Partner agreement manual completion
+router.post('/partners/manual-complete', superAdminAuth, controller.manuallyCompleteAgreement);
+
 module.exports = router;
