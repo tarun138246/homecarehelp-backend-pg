@@ -506,7 +506,8 @@ async function manuallyCompleteAgreement(partnerId, signatureBase64, paymentDeta
   const { generateAgreementId, generateInvoiceId } = require('../../../common/utils/agreementId');
   const { generateInvoicePDF } = require('../../../common/utils/invoicePdf');
   const pratimaClient = require('../../../common/utils/pratimaClient');
-  const { decrypt, secureClear } = require('../../../common/utils/crypto');
+  const { decrypt } = require('../../../common/utils/crypto');
+  const { secureClear } = require('../../../common/utils/memoryCleanup');
   const emailService = require('../../email/emailService');
 
   // Fetch partner
